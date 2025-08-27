@@ -450,6 +450,40 @@ function log(msg) {
     return () => clearInterval(iv)
   }, [lastTick])
 
+  // ---- Panel heartbeat (1s) ----
+useEffect(() => {
+  const snapshot = () => {
+    const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
+    setPanel({
+      backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
+      lastActionAt: lastActionAtRef.current || 0,
+      nextAllowedMs: nextAllowed,
+      windowCount: actionsWindowRef.current.length,
+      counters: { ...countersRef.current },
+      failCount: failCountRef.current,
+      avgTickMs: avgTickMsRef.current,
+      ts: Date.now(),
+    })
+  }
+  snapshot()
+  panelIvRef.current = setInterval(snapshot, 1000)
+
+  const onVis = () => {
+    if (document.hidden) {
+      if (panelIvRef.current) { clearInterval(panelIvRef.current); panelIvRef.current = null }
+    } else if (!panelIvRef.current) {
+      snapshot()
+      panelIvRef.current = setInterval(snapshot, 1000)
+    }
+  }
+  document.addEventListener('visibilitychange', onVis)
+
+  return () => {
+    if (panelIvRef.current) clearInterval(panelIvRef.current)
+    document.removeEventListener('visibilitychange', onVis)
+  }
+}, [])
+
   // Initial connect
   useEffect(() => { connectWS() }, [])
 
@@ -511,7 +545,40 @@ function log(msg) {
           const base = baselines[t.symbol]
           const pct = price && base ? pctChange(price, base) : 0
           const absUsd = price && base ? (price - base) : 0
-          return (
+          
+const panelIvRef = useRef(null)
+useEffect(() => {
+  const snapshot = () => {
+    const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
+    setPanel({
+      backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
+      lastActionAt: lastActionAtRef.current || 0,
+      nextAllowedMs: nextAllowed,
+      windowCount: actionsWindowRef.current.length,
+      counters: { ...countersRef.current },
+      failCount: failCountRef.current,
+      avgTickMs: avgTickMsRef.current,
+      ts: Date.now(),
+    })
+  }
+  snapshot()
+  panelIvRef.current = setInterval(snapshot, 1000)
+  const onVis = () => {
+    if (document.hidden) {
+      if (panelIvRef.current) { clearInterval(panelIvRef.current); panelIvRef.current = null }
+    } else if (!panelIvRef.current) {
+      snapshot()
+      panelIvRef.current = setInterval(snapshot, 1000)
+    }
+  }
+  document.addEventListener('visibilitychange', onVis)
+  return () => {
+    if (panelIvRef.current) clearInterval(panelIvRef.current)
+    document.removeEventListener('visibilitychange', onVis)
+  }
+}, [])
+
+  return (
             <div key={t.symbol} style={{ background: '#141a24', borderRadius: 12, padding: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.35)' }}>
               <div style={{ fontSize: 14, opacity: 0.8 }}>{t.symbol} <span style={{ opacity: 0.6 }}>({t.pair})</span></div>
               <div style={{ fontSize: 24, marginTop: 4 }}>{price ? fmtUSD(price) : '—'}</div>
