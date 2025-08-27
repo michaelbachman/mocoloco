@@ -1,6 +1,5 @@
-#
 # Netlify config for Kraken real-time alerts (BTC-only)
-# Fix: build runs from repo root, cd into app subdir; publish correct dist; functions at repo root
+
 [build]
   command = "cd apps/realtime-alerts && npm install --no-audit --no-fund && npm run build"
   publish = "apps/realtime-alerts/dist"
@@ -13,7 +12,9 @@
 [build.environment]
   NODE_VERSION = "18"
 
+# Optional friendly proxy for functions:
+# Call your function as /api/telegram instead of /.netlify/functions/telegram
 [[redirects]]
-  from = "/.netlify/functions/*"
+  from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
