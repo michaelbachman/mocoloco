@@ -6,10 +6,6 @@ const TOKENS = [
 ]
 const DEFAULT_THRESHOLD_PCT = 1 // ±1%
 const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7am PT
-const ALERT_DEDUP_MS = 180000 // 3 minutes per direction
-const RECONNECT_DAILY_CAP = 500 // max reconnect schedules per day
-const BROWNOUT_MODE = false
-const BROWNOUT_MULTIPLIER = 2
 
 // Kraken-friendly pacing (doubled, gentle)
 const RATE_LIMIT_MS = 2400       // ≥ one action per 2.4s (connect / subscribe)
@@ -21,14 +17,13 @@ const BACKOFF_MAX_MS = 120000    // cap backoff at 120s
 const ACTION_WINDOW_MS = 15000
 const ACTION_WINDOW_MAX = 8      // at most 8 actions per 15s window
 
-// ---- Helpers ----
-function parseLastPrice(payload){
-  const cand = [payload?.c?.[0], payload?.a?.[0], payload?.p?.[0]].map(x => x!=null ? parseFloat(x) : NaN);
-  const val = cand.find(v => Number.isFinite(v));
-  return Number.isFinite(val) ? val : null;
-}
-function isPlainObject(o){ return o && typeof o === 'object' && !Array.isArray(o) }
+// Production toggles
+const ALERT_DEDUP_MS = 180000 // 3 minutes per direction
+const RECONNECT_DAILY_CAP = 500 // max reconnect schedules per day
+const BROWNOUT_MODE = false
+const BROWNOUT_MULTIPLIER = 2
 
+// ---- Helpers ----
 function pctChange(curr, base) {
   if (!base || base === 0) return 0
   return ((curr - base) / base) * 100
@@ -54,6 +49,11 @@ function persistNumber(key, val) {
 }
 function loadNumber(key, fallback = 0) {
   try { const v = localStorage.getItem(key); return v ? Number(v) : fallback } catch { return fallback }
+}
+function parseLastPrice(payload){
+  const cand = [payload?.c?.[0], payload?.a?.[0], payload?.p?.[0]].map(x => x!=null ? parseFloat(x) : NaN);
+  const val = cand.find(v => Number.isFinite(v));
+  return Number.isFinite(val) ? val : null;
 }
 
 async function sendTelegram(message) {
@@ -104,8 +104,8 @@ export default function App() {
   const lastFailureAtRef = useRef(0)
   const lastReconnectReasonRef = useRef('—')
   const lastAlertRef = useRef(new Map())
-    const dailyCapRef = useRef({ day: null, count: 0 })
-    const countersRef = useRef({
+  const dailyCapRef = useRef({ day: null, count: 0 })
+  const countersRef = useRef({
     connectAttempts: 0,
     subscribeSends: 0,
     errors: 0,
@@ -154,7 +154,7 @@ export default function App() {
     }
   }, [])
 
-  // ---- Logging (batched) ----
+  // ---- Logging (batched, flush every 10s) ----
   function log(msg) {
     logsBufferRef.current.unshift(msg)
     if (!flushTimerRef.current) {
@@ -217,35 +217,35 @@ export default function App() {
     return Math.min(ms, BACKOFF_MAX_MS)
   }
 
-  // ---- Reconnect scheduler (offline/visibility aware + cooldown) ----
+  // ---- Reconnect scheduler (offline/visibility aware + cooldown + daily cap + brownout) ----
   function scheduleReconnect(reason = 'unknown') {
-  if (reconnectRef.current) clearTimeout(reconnectRef.current)
-  // daily cap
-  const today = new Date().toISOString().slice(0,10)
-  if (dailyCapRef.current.day !== today) { dailyCapRef.current.day = today; dailyCapRef.current.count = 0 }
-  if (dailyCapRef.current.count >= RECONNECT_DAILY_CAP) { log('Daily reconnect cap reached; pausing reconnects'); return }
-  dailyCapRef.current.count++
+    if (reconnectRef.current) clearTimeout(reconnectRef.current)
+    // daily cap
+    const today = new Date().toISOString().slice(0,10)
+    if (dailyCapRef.current.day !== today) { dailyCapRef.current.day = today; dailyCapRef.current.count = 0 }
+    if (dailyCapRef.current.count >= RECONNECT_DAILY_CAP) { log('Daily reconnect cap reached; pausing reconnects'); return }
+    dailyCapRef.current.count++
 
-  if (!isOnline) {
-    log('Reconnect deferred: offline')
-    reconnectRef.current = setTimeout(() => scheduleReconnect('offline retry'), Math.max(MIN_RECONNECT_MS, 15000))
-    return
-  }
-  lastReconnectReasonRef.current = reason
-  let extraCooldown = 0
-  if (failCountRef.current >= 5) extraCooldown = 60000
-  const base = isVisible ? backoffRef.current : backoffRef.current * 2
-  let delay = Math.max(base, MIN_RECONNECT_MS) + extraCooldown + Math.floor(Math.random() * 3000)
-  if (BROWNOUT_MODE) delay = Math.floor(delay * BROWNOUT_MULTIPLIER)
+    if (!isOnline) {
+      log('Reconnect deferred: offline')
+      reconnectRef.current = setTimeout(() => scheduleReconnect('offline retry'), Math.max(MIN_RECONNECT_MS, 15000))
+      return
+    }
+    lastReconnectReasonRef.current = reason
+    let extraCooldown = 0
+    if (failCountRef.current >= 5) {
+      extraCooldown = 60000 // +60s after 5 consecutive failures
+    }
+    // visibility-aware pacing
+    const base = isVisible ? backoffRef.current : backoffRef.current * 2
+    let delay = Math.max(base, MIN_RECONNECT_MS) + extraCooldown + Math.floor(Math.random() * 3000)
+    if (BROWNOUT_MODE) delay = Math.floor(delay * BROWNOUT_MULTIPLIER)
 
-  reconnectRef.current = setTimeout(() => {
-    backoffRef.current = nextBackoff(backoffRef.current)
-    connectWS()
-  }, delay)
-  log(`Reconnecting in ${(delay/1000).toFixed(1)}s (reason: ${reason})`)
-}
-
-// Reconnecting in ${(delay/1000).toFixed(1)}s (reason: ${reason})`)
+    reconnectRef.current = setTimeout(() => {
+      backoffRef.current = nextBackoff(backoffRef.current)
+      connectWS()
+    }, delay)
+    log(`Reconnecting in ${(delay/1000).toFixed(1)}s (reason: ${reason})`)
   }
 
   // ---- Connect WS (guarded) ----
@@ -309,8 +309,8 @@ export default function App() {
             })
             if (!token) { log(`Unmapped pair in message: ${pairStr || '(empty)'} (${nowPT()} PT)`); return }
 
-            const last = parseFloat((payload && payload.c && payload.c[0]) || (payload && payload.a && payload.a[0]) || (payload && payload.p && payload.p[0]))
-            if (!isFinite(last)) return
+            const last = parseLastPrice(payload)
+            if (last == null) return
 
             // tick interval tracking (for adaptive watchdog)
             const nowMs = Date.now()
@@ -350,23 +350,24 @@ export default function App() {
             const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
 
             if (crossed) {
-                // Alert dedupe per direction
-                const key = `${token.symbol}_${pct>0?'up':'down'}`
-                const prev = lastAlertRef.current.get(key) || 0
-                if (Date.now() - prev < ALERT_DEDUP_MS) {
-                  log(`(dedup) ${token.symbol} ${pct>0?'up':'down'} within ${Math.round(ALERT_DEDUP_MS/1000)}s window`)
-                } else { lastAlertRef.current.set(key, Date.now())
-              if (!inQuietHours()) {
-                const direction = pct > 0 ? 'up' : 'down'
-                const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})\nPrice: ${fmtUSD(last)}\nPrior baseline: ${fmtUSD(base)}\nTime: ${nowPT()} PT`
-                sendTelegram(msg)
-                log(msg)
+              // Alert dedupe per direction
+              const key = `${token.symbol}_${pct>0?'up':'down'}`
+              const prev = lastAlertRef.current.get(key) || 0
+              if (Date.now() - prev < ALERT_DEDUP_MS) {
+                log(`(dedup) ${token.symbol} ${pct>0?'up':'down'} within ${Math.round(ALERT_DEDUP_MS/1000)}s window`)
               } else {
-                log(`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`)
+                lastAlertRef.current.set(key, Date.now())
+                if (!inQuietHours()) {
+                  const direction = pct > 0 ? 'up' : 'down'
+                  const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})\nPrice: ${fmtUSD(last)}\nPrior baseline: ${fmtUSD(base)}\nTime: ${nowPT()} PT`
+                  sendTelegram(msg)
+                  log(msg)
+                } else {
+                  log(`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`)
+                }
+                localStorage.setItem(storageKey(token.symbol), String(last))
+                setBaselines(b => ({ ...b, [token.symbol]: last }))
               }
-              }
-              localStorage.setItem(storageKey(token.symbol), String(last))
-              setBaselines(b => ({ ...b, [token.symbol]: last }))
             }
           } else if (data && data.event) {
             log(`${data.event}: ${JSON.stringify(data)}`)
@@ -490,23 +491,45 @@ export default function App() {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => ['Manual reconnect requested', ...l]); scheduleReconnect('manual') }} disabled={connectingRef.current}>Reconnect</button>
+        <button onClick={() => {
+          const msgs = [];
+          TOKENS.forEach(t => {
+            const p = prices[t.symbol];
+            if (p) {
+              localStorage.setItem(storageKey(t.symbol), String(p));
+              msgs.push(`${t.symbol} baseline reset to ${fmtUSD(p)} (${nowPT()} PT)`);
+            }
+          });
+          setBaselines(b => {
+            const copy = { ...b };
+            TOKENS.forEach(t => { if (prices[t.symbol]) copy[t.symbol] = prices[t.symbol]; });
+            return copy;
+          });
+          log(msgs.join('\n') || 'No baselines updated (no prices yet)')
+        }}>Reset baselines to current</button>
+
+        <button style={{ marginLeft: 8 }} onClick={() => {
+          const msgs = [];
+          TOKENS.forEach(t => { localStorage.removeItem(storageKey(t.symbol)); msgs.push(`${t.symbol} baseline cleared (${nowPT()} PT)`); })
+          setBaselines(() => { const o = {}; TOKENS.forEach(t => o[t.symbol] = null); return o; })
+          log(msgs.join('\n'))
+        }}>Clear baselines</button>
+
+        <button
+          style={{ marginLeft: 8 }}
+          onClick={() => { setLogs(l => ['Manual reconnect requested', ...l]); scheduleReconnect('manual') }}
+          disabled={connectingRef.current}
+        >
+          Reconnect
+        </button>
       </div>
 
       <div style={{ marginTop: 16 }}>
         <h2 style={{ fontSize: 14, opacity: 0.85, marginBottom: 6 }}>Logs</h2>
-          <div style={{ background: '#0f1420', borderRadius: 8, padding: 12, maxHeight: 260, overflow: 'auto', fontSize: 12, lineHeight: 1.4 }}>
+        <div style={{ background: '#0f1420', borderRadius: 8, padding: 12, maxHeight: 260, overflow: 'auto', fontSize: 12, lineHeight: 1.4 }}>
           {logs.map((ln, i) => <div key={i} style={{ opacity: 0.9, whiteSpace: 'pre-wrap' }}>{ln}</div>)}
         </div>
       </div>
     </div>
   )
 }
-
-/*
-Security/Production Notes:
-- Schema guard: validate Kraken ticker messages shape (c[0], a[0], p[0]) before use.
-- Deduper: throttle alerts so identical direction/threshold moves within 2–5 min window are skipped.
-- Daily cap: max reconnect attempts/hour; after that pause and show banner.
-- Brownout flag: optional admin env var to slow all reconnects under stress.
-*/
