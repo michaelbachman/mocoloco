@@ -7,12 +7,15 @@ const TOKENS = [
 const DEFAULT_THRESHOLD_PCT = 1 // ±1%
 const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7am PT
 
-// ---- Rate limiting (Kraken WS guidance ~1 req/sec)
-const RATE_LIMIT_MS = 2400      // min gap between subscribe/connect actions
-const MIN_RECONNECT_MS = 10000   // don't reconnect faster than this
-const BACKOFF_START_MS = 10000   // start backoff at 5s
-const BACKOFF_MAX_MS = 120000    // cap backoff at 60s
+// Kraken-friendly pacing (doubled, gentle)
+const RATE_LIMIT_MS = 2400       // ≥ one action per 2.4s (connect / subscribe)
+const MIN_RECONNECT_MS = 10000   // minimum reconnect spacing
+const BACKOFF_START_MS = 10000   // start backoff at 10s
+const BACKOFF_MAX_MS = 120000    // cap backoff at 120s
 
+// Sliding window limits for burst protection (applies to connect/subscribe actions)
+const ACTION_WINDOW_MS = 15000
+const ACTION_WINDOW_MAX = 8      // at most 8 actions per 15s window
 
 // ---- Helpers ----
 function pctChange(curr, base) {
@@ -35,6 +38,12 @@ function nowPT() {
   return new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
 }
 function storageKey(sym) { return `baseline_${sym}` }
+function persistNumber(key, val) {
+  try { localStorage.setItem(key, String(val)) } catch {}
+}
+function loadNumber(key, fallback = 0) {
+  try { const v = localStorage.getItem(key); return v ? Number(v) : fallback } catch { return fallback }
+}
 
 async function sendTelegram(message) {
   try {
@@ -63,48 +72,67 @@ export default function App() {
   })
   const [logs, setLogs] = useState([])
   const [wsStatus, setWsStatus] = useState('Disconnected')
-  const [lastTick, setLastTick] = useState(0)
+  const [lastTick, setLastTick] = useState(null) // numeric ms timestamp
   const [runtimeError, setRuntimeError] = useState(null)
-    const [limitsTick, setLimitsTick] = useState(0)
-    const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
-    const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
+  const [limitsTick, setLimitsTick] = useState(0) // 1s ticker for panel
+
+  // Refs
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
-  const staleCheckRef = useRef(null)
-  const backoffRef = useRef(BACKOFF_START_MS)
-    const connectingRef = useRef(false)
-    const unmappedCountRef = useRef(0)
-    const lastActionAtRef = useRef(0) // last connect/subscribe timestamp (ms)
+  const backoffRef = useRef(loadNumber('pro_backoff_ms', BACKOFF_START_MS))
+  const lastActionAtRef = useRef(loadNumber('pro_last_action_at', 0))
+  const actionsWindowRef = useRef([]) // timestamps of recent actions
+  const connectingRef = useRef(false)
+  const logsBufferRef = useRef([])
+  const flushTimerRef = useRef(null)
+  const pricesRef = useRef({})
+  const priceUpdateTimerRef = useRef(null)
+  const failCountRef = useRef(0)
+  const lastFailureAtRef = useRef(0)
+  const lastReconnectReasonRef = useRef('—')
+  const countersRef = useRef({
+    connectAttempts: 0,
+    subscribeSends: 0,
+    errors: 0,
+    closes: 0,
+    watchdogResets: 0,
+    rateDelayed: 0,
+    queuedActions: 0,
+  })
+  const avgTickMsRef = useRef(null) // moving avg of tick intervals
 
+  // Persist certain refs when they change (via a lightweight 1s ticker)
   useEffect(() => {
-      // lightweight 1s ticker for limits panel
-      const iv = setInterval(() => setLimitsTick(t => (t + 1) % 1_000_000), 1000)
+    const iv = setInterval(() => {
+      setLimitsTick(t => (t + 1) % 1_000_000)
+      persistNumber('pro_backoff_ms', backoffRef.current)
+      persistNumber('pro_last_action_at', lastActionAtRef.current)
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [])
 
-    // Global error listeners
+  // Global error listeners + network/visibility listeners
+  useEffect(() => {
     function onError(e) {
       const msg = `Runtime error: ${e.message}`
-      setRuntimeError(msg)
-      setLogs(l => [msg, ...l])
+      setRuntimeError(msg); log(msg)
     }
     function onRejection(e) {
       const detail = (e && e.reason && (e.reason.message || e.reason.toString())) || 'Unknown'
       const msg = `Unhandled promise rejection: ${detail}`
-      setRuntimeError(msg)
-      setLogs(l => [msg, ...l])
+      setRuntimeError(msg); log(msg)
     }
+    function onOnline(){ setIsOnline(true); log('Network: online') }
+    function onOffline(){ setIsOnline(false); log('Network: offline') }
+    function onVis(){ const v = !document.hidden; setIsVisible(v); log(`Visibility: ${v ? 'visible' : 'hidden'}`) }
     window.addEventListener('error', onError)
     window.addEventListener('unhandledrejection', onRejection)
-
-      // Network/visibility listeners
-      function onOnline(){ setIsOnline(true); setLogs(l => ['Network: online', ...l]) }
-      function onOffline(){ setIsOnline(false); setLogs(l => ['Network: offline', ...l]) }
-      function onVis(){ const v = !document.hidden; setIsVisible(v); setLogs(l => [`Visibility: ${v ? 'visible' : 'hidden'}`, ...l]) }
-      window.addEventListener('online', onOnline)
-      window.addEventListener('offline', onOffline)
-      document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    document.addEventListener('visibilitychange', onVis)
     return () => {
-        clearInterval(iv)
-
       window.removeEventListener('error', onError)
       window.removeEventListener('unhandledrejection', onRejection)
       window.removeEventListener('online', onOnline)
@@ -113,177 +141,260 @@ export default function App() {
     }
   }, [])
 
-  
-  function scheduleReconnect() {
-  if (reconnectRef.current) clearTimeout(reconnectRef.current)
-  if (!isOnline) {
-    setLogs(l => ['Reconnect deferred: offline', ...l])
-    reconnectRef.current = setTimeout(scheduleReconnect, Math.max(MIN_RECONNECT_MS, 15000))
-    return
+  // ---- Logging (batched) ----
+  function log(msg) {
+    logsBufferRef.current.unshift(msg)
+    if (!flushTimerRef.current) {
+      flushTimerRef.current = setTimeout(() => {
+        setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
+        logsBufferRef.current = []
+        flushTimerRef.current = null
+      }, 750) // flush ~1/s
+    }
   }
-  const now = Date.now()
-  const sinceLast = now - lastActionAtRef.current
-  const minGap = Math.max(MIN_RECONNECT_MS * (isVisible ? 1 : 2), RATE_LIMIT_MS * 2)
-  const baseDelay = Math.min(backoffRef.current * (isVisible ? 1 : 2), BACKOFF_MAX_MS)
-  const jitter = Math.floor(Math.random() * 3000) // up to 3s jitter
-  const delay = Math.max(baseDelay + jitter, minGap - sinceLast)
 
-  reconnectRef.current = setTimeout(() => {
-    backoffRef.current = Math.min(backoffRef.current * 2, BACKOFF_MAX_MS)
-    connectWS()
-  }, Math.max(delay, 0))
-
-  const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
-  setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
-}
-function connectWS() {
-  if (!isOnline) {
-    setLogs(l => ['Skipped connect: offline', ...l])
-    scheduleReconnect()
-    return
+  // ---- Sliding-window, rate-limited action queue ----
+  function withinWindowLimit(now) {
+    const arr = actionsWindowRef.current
+    // prune old
+    while (arr.length && (now - arr[0] > ACTION_WINDOW_MS)) arr.shift()
+    return arr.length < ACTION_WINDOW_MAX
   }
-  // If hidden, we still connect, but rely on the larger minGap/backoff above
+  function noteAction(now) {
+    actionsWindowRef.current.push(now)
+    lastActionAtRef.current = now
+  }
+  function delayForLimits(name, now) {
+    const since = now - lastActionAtRef.current
+    let delay = Math.max(0, RATE_LIMIT_MS - since)
+    // If window full, wait until it frees up
+    const arr = actionsWindowRef.current
+    if (arr.length >= ACTION_WINDOW_MAX) {
+      const head = arr[0]
+      const until = head + ACTION_WINDOW_MS - now
+      delay = Math.max(delay, until)
+    }
+    if (delay > 0) {
+      countersRef.current.rateDelayed++
+      log(`Rate limit: delaying ${name} ${Math.ceil(delay)}ms`)
+    }
+    return delay
+  }
+  function queueAction(name, fn) {
+    const now = Date.now()
+    const delay = delayForLimits(name, now)
+    countersRef.current.queuedActions++
+    setTimeout(() => {
+      const t = Date.now()
+      // double-check window
+      if (!withinWindowLimit(t)) {
+        const d2 = delayForLimits(name + ' (retry)', t)
+        return setTimeout(() => queueAction(name, fn), d2)
+      }
+      noteAction(t)
+      try { fn() } catch (e) { console.warn('Action error', name, e) }
+    }, delay)
+  }
 
-    if (connectingRef.current) { setLogs(l => ['Skipped connect: already connecting', ...l]); return }
-    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) { setLogs(l => ['Reconnect skipped: socket not CLOSED', ...l]); return }
+  // ---- Decorrelated jitter backoff ----
+  function nextBackoff(curr) {
+    const min = BACKOFF_START_MS
+    const max = Math.min(BACKOFF_MAX_MS, curr * 3)
+    const ms = Math.floor(Math.random() * (max - min + 1) + min)
+    return Math.min(ms, BACKOFF_MAX_MS)
+  }
+
+  // ---- Reconnect scheduler (offline/visibility aware + cooldown) ----
+  function scheduleReconnect(reason = 'unknown') {
+    if (reconnectRef.current) clearTimeout(reconnectRef.current)
+    if (!isOnline) {
+      log('Reconnect deferred: offline')
+      reconnectRef.current = setTimeout(() => scheduleReconnect('offline retry'), Math.max(MIN_RECONNECT_MS, 15000))
+      return
+    }
+    lastReconnectReasonRef.current = reason
+    // failure-aware cooldown
+    let extraCooldown = 0
+    if (failCountRef.current >= 5) {
+      extraCooldown = 60000 // +60s after 5 consecutive failures
+    }
+    // visibility-aware pacing
+    const base = isVisible ? backoffRef.current : backoffRef.current * 2
+    const delay = Math.max(base, MIN_RECONNECT_MS) + extraCooldown + Math.floor(Math.random() * 3000)
+    reconnectRef.current = setTimeout(() => {
+      backoffRef.current = nextBackoff(backoffRef.current)
+      connectWS()
+    }, delay)
+    log(`Reconnecting in ${(delay/1000).toFixed(1)}s (reason: ${reason})`)
+  }
+
+  // ---- Connect WS (guarded) ----
+  function connectWS() {
+    // prevent overlaps
+    if (connectingRef.current) { log('Skipped connect: already connecting'); return }
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      log('Reconnect skipped: socket not CLOSED'); return
+    }
+    if (!isOnline) { log('Skipped connect: offline'); scheduleReconnect('offline'); return }
+
+    const now = Date.now()
+    const delay = delayForLimits('connect', now)
     connectingRef.current = true
-  if (wsRef.current) { try { wsRef.current.close() } catch {} }
-  const now = Date.now()
-  const sinceLast = now - lastActionAtRef.current
-  if (sinceLast < RATE_LIMIT_MS) {
-    const wait = RATE_LIMIT_MS - sinceLast
-    setLogs(l => [`Rate limit: delaying connect ${Math.ceil(wait)}ms`, ...l])
-    setTimeout(connectWS, wait)
-    return
-  }
-  lastActionAtRef.current = now
-
-  connectingRef.current = true /*pyfix*/
-      const ws = new WebSocket('wss://ws.kraken.com')
-  wsRef.current = ws
-  setWsStatus('Connecting')
-
-  ws.onopen = () => {
+    setTimeout(() => {
+      const t = Date.now()
+      if (!withinWindowLimit(t)) {
+        const d2 = delayForLimits('connect (retry)', t)
         connectingRef.current = false
-    connectingRef.current = false
-    setWsStatus('Connected')
-    backoffRef.current = BACKOFF_START_MS
-    const subscribe = {
-      event: 'subscribe',
-      pair: TOKENS.map(t => t.subscribePair),
-      subscription: { name: 'ticker' },
-    }
-    const since = Date.now() - lastActionAtRef.current
-    const doSubscribe = () => {
-      ws.send(JSON.stringify(subscribe))
-      lastActionAtRef.current = Date.now()
-      setLogs(l => [`WS connected ${nowPT()} (subscribed: ${TOKENS.map(t=>t.subscribePair).join(', ')})`, ...l])
-    }
-    if (since < RATE_LIMIT_MS) {
-      const waitMs = RATE_LIMIT_MS - since
-      setTimeout(doSubscribe, waitMs)
-    } else {
-      doSubscribe()
-    }(l => [`WS connected ${nowPT()}`, ...l])
-    }
-
-    ws.onmessage = (ev) => {
-  try {
-    const data = JSON.parse(ev.data)
-    if (Array.isArray(data) && data.length >= 2) {
-      const payload = data[1]
-      const tail = data[data.length - 1]
-      const pairStr = (typeof tail === 'string') ? tail : (tail && tail.pair) || ''
-      const normMsg = pairStr.replace(/[^A-Za-z]/g, '').toUpperCase()
-
-      const token = TOKENS.find(t => {
-        const normCfg = t.pair.replace(/[^A-Za-z]/g, '').toUpperCase()
-        const normSym = t.symbol.replace(/[^A-Za-z]/g, '').toUpperCase()
-        return normMsg.includes(normCfg) || normMsg.includes(normSym)
-      })
-      if (!token) { if (unmappedCountRef.current < 5) { setLogs(l => [`Unmapped pair in message: ${pairStr || '(empty)'} (${nowPT()} PT)`, ...l]); unmappedCountRef.current++ } return }
-
-      const last = parseFloat((payload && payload.c && payload.c[0]) || (payload && payload.a && payload.a[0]) || (payload && payload.p && payload.p[0]))
-      if (!isFinite(last)) return
-
-      setPrices(prev => ({ ...prev, [token.symbol]: last }))
-
-      // Always log the price tick
-      setLogs(l => [`${token.symbol} tick: ${fmtUSD(last)} (${nowPT()} PT)`, ...l])
-
-      // update last tick timestamp
-      setLastTick(Date.now())
-
-      // Baseline init
-      let base = baselines[token.symbol]
-      if (!base) {
-        base = last
-        localStorage.setItem(storageKey(token.symbol), String(base))
-        setBaselines(b => ({ ...b, [token.symbol]: base }))
-        setLogs(l => [`${token.symbol} baseline initialized at ${fmtUSD(base)} (${nowPT()} PT)`, ...l])
-        return
+        return setTimeout(connectWS, d2)
       }
+      noteAction(t)
 
-      const pct = ((last - base) / base) * 100
-      const absUsd = last - base
-      const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
+      const ws = new WebSocket('wss://ws.kraken.com')
+      wsRef.current = ws
+      setWsStatus('Connecting')
+      countersRef.current.connectAttempts++
 
-      if (crossed) {
-        if (!inQuietHours()) {
-          const direction = pct > 0 ? 'up' : 'down'
-          const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})\nPrice: ${fmtUSD(last)}\nPrior baseline: ${fmtUSD(base)}\nTime: ${nowPT()} PT`
-          sendTelegram(msg)
-          setLogs(l => [msg, ...l])
-        } else {
-          setLogs(l => [`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`, ...l])
+      ws.onopen = () => {
+        setWsStatus('Connected')
+        // subscribe (rate-limited action)
+        const subscribe = {
+          event: 'subscribe',
+          pair: TOKENS.map(t => t.subscribePair),
+          subscription: { name: 'ticker' },
         }
-        localStorage.setItem(storageKey(token.symbol), String(last))
-        setBaselines(b => ({ ...b, [token.symbol]: last }))
+        queueAction('subscribe', () => {
+          try {
+            ws.send(JSON.stringify(subscribe))
+            countersRef.current.subscribeSends++
+            log(`Subscribed: ${TOKENS.map(t=>t.subscribePair).join(', ')}`)
+          } catch (e) {
+            console.warn('Subscribe send error', e)
+          }
+        })
       }
-    } else if (data && data.event) {
-      setLogs(l => [`${data.event}: ${JSON.stringify(data)}`, ...l])
-    }
-  } catch (e) {
-    console.warn('WS parse error', e)
-  }
-}
-ws.onclose = () => {
-      connectingRef.current = false
-    connectingRef.current = false
-      setWsStatus('Closed')
-      setLogs(l => [`WS closed ${nowPT()}`, ...l])
-      scheduleReconnect()
-    }
-    ws.onerror = () => {
-      connectingRef.current = false
-    connectingRef.current = false
-      setWsStatus('Error')
-      setLogs(l => [`WS error ${nowPT()}`, ...l])
-      scheduleReconnect()
-    }
+
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data)
+          if (Array.isArray(data) && data.length >= 2) {
+            const payload = data[1]
+            const tail = data[data.length - 1]
+            const pairStr = (typeof tail === 'string') ? tail : (tail && tail.pair) || ''
+            const normMsg = pairStr.replace(/[^A-Za-z]/g, '').toUpperCase()
+
+            const token = TOKENS.find(t => {
+              const normCfg = t.pair.replace(/[^A-Za-z]/g, '').toUpperCase()
+              const normSym = t.symbol.replace(/[^A-Za-z]/g, '').toUpperCase()
+              return normMsg.includes(normCfg) || normMsg.includes(normSym)
+            })
+            if (!token) { log(`Unmapped pair in message: ${pairStr || '(empty)'} (${nowPT()} PT)`); return }
+
+            const last = parseFloat((payload && payload.c && payload.c[0]) || (payload && payload.a && payload.a[0]) || (payload && payload.p && payload.p[0]))
+            if (!isFinite(last)) return
+
+            // tick interval tracking (for adaptive watchdog)
+            const nowMs = Date.now()
+            if (lastTick) {
+              const diff = nowMs - lastTick
+              const prev = avgTickMsRef.current
+              avgTickMsRef.current = prev == null ? diff : Math.round(prev * 0.8 + diff * 0.2)
+            }
+            setLastTick(nowMs)
+            backoffRef.current = BACKOFF_START_MS // reset backoff only on real tick
+            failCountRef.current = 0 // reset fail counter on data
+
+            // Throttled price updates
+            pricesRef.current = { ...pricesRef.current, [token.symbol]: last }
+            if (!priceUpdateTimerRef.current) {
+              priceUpdateTimerRef.current = setTimeout(() => {
+                setPrices(p => ({ ...p, ...pricesRef.current }))
+                priceUpdateTimerRef.current = null
+              }, 250)
+            }
+
+            // Always log tick (batched)
+            log(`${token.symbol} tick: ${fmtUSD(last)} (${nowPT()} PT)`)
+
+            // Baseline init
+            let base = baselines[token.symbol]
+            if (!base) {
+              base = last
+              localStorage.setItem(storageKey(token.symbol), String(base))
+              setBaselines(b => ({ ...b, [token.symbol]: base }))
+              log(`${token.symbol} baseline initialized at ${fmtUSD(base)} (${nowPT()} PT)`)
+              return
+            }
+
+            const pct = pctChange(last, base)
+            const absUsd = last - base
+            const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
+
+            if (crossed) {
+              if (!inQuietHours()) {
+                const direction = pct > 0 ? 'up' : 'down'
+                const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})\nPrice: ${fmtUSD(last)}\nPrior baseline: ${fmtUSD(base)}\nTime: ${nowPT()} PT`
+                sendTelegram(msg)
+                log(msg)
+              } else {
+                log(`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`)
+              }
+              localStorage.setItem(storageKey(token.symbol), String(last))
+              setBaselines(b => ({ ...b, [token.symbol]: last }))
+            }
+          } else if (data && data.event) {
+            log(`${data.event}: ${JSON.stringify(data)}`)
+          }
+        } catch (e) {
+          console.warn('WS parse error', e)
+        }
+      }
+
+      ws.onclose = () => {
+        setWsStatus('Closed')
+        connectingRef.current = false
+        countersRef.current.closes++
+        failCountRef.current++
+        lastFailureAtRef.current = Date.now()
+        scheduleReconnect('close')
+      }
+      ws.onerror = () => {
+        setWsStatus('Error')
+        connectingRef.current = false
+        countersRef.current.errors++
+        failCountRef.current++
+        lastFailureAtRef.current = Date.now()
+        scheduleReconnect('error')
+      }
+    }, delay)
   }
 
+  // ---- Watchdog (adaptive) ----
   useEffect(() => {
-    connectWS()
-    // Stale connection watchdog: if no tick for 45s, reconnect
-    if (staleCheckRef.current) clearInterval(staleCheckRef.current)
-    staleCheckRef.current = setInterval(() => {
+    const iv = setInterval(() => {
       if (!lastTick) return
       const diff = Date.now() - lastTick
-      if (diff > 45000) {
-        setLogs(l => [`Watchdog: reconnecting after ${(diff/1000).toFixed(0)}s idle`, ...l])
-        connectWS()
+      // Adaptive threshold: based on recent avg tick interval
+      const avg = avgTickMsRef.current || 60000
+      let threshold = 60000 // default 60s
+      if (avg <= 4000) threshold = 40000
+      else if (avg <= 10000) threshold = 60000
+      else threshold = 90000
+      if (diff > threshold) {
+        countersRef.current.watchdogResets++
+        log(`Watchdog: reconnecting after ${(diff/1000).toFixed(0)}s idle (avg tick ${(avg/1000).toFixed(1)}s)`)
+        scheduleReconnect('watchdog idle')
       }
     }, 15000)
-    return () => {
-      if (staleCheckRef.current) clearInterval(staleCheckRef.current)
-      if (wsRef.current) try { wsRef.current.close() } catch {}
-    }
+    return () => clearInterval(iv)
   }, [lastTick])
 
+  // Initial connect
+  useEffect(() => { connectWS() }, [])
+
+  // ---- UI ----
   return (
     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
-      <h1 style={{ fontSize: '20px', marginBottom: 8 }}>Kraken Real-time Alerts (WS)</h1>
+      <h1 style={{ fontSize: '20px', marginBottom: 8 }}>Kraken Real-time Alerts (WS, Pro)</h1>
 
       {runtimeError && (
         <div style={{ background: '#3b0d0d', border: '1px solid #7f1d1d', color: '#fecaca', padding: 10, borderRadius: 8, marginBottom: 10 }}>
@@ -292,25 +403,40 @@ ws.onclose = () => {
       )}
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', marginBottom: 8 }}>
-<div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginBottom: 12 }}>
-  <div style={{ background: '#101623', borderRadius: 10, padding: 10, border: '1px solid #1f2a44' }}>
-    <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Limits</div>
-    <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-      <div>Rate spacing: <strong>{RATE_LIMIT_MS} ms</strong></div>
-      <div>Min reconnect: <strong>{MIN_RECONNECT_MS} ms</strong></div>
-      <div>Backoff now: <strong>{Math.min(backoffRef.current, BACKOFF_MAX_MS)} ms</strong></div>
-      <div>Next allowed action: <strong>{(() => {
-        const next = (lastActionAtRef.current || 0) + RATE_LIMIT_MS;
-        const rem = Math.max(0, next - Date.now());
-        return rem + ' ms';
-      })()}</strong></div>
-      <div>Last action at: <strong>{lastActionAtRef.current ? new Date(lastActionAtRef.current).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
-    </div>
-  </div>
-</div>
-
         <div style={{ fontSize: 12, opacity: 0.85 }}>WS Status: <strong>{wsStatus}</strong> <span style={{ opacity: 0.6 }}>(net: {isOnline ? 'online' : 'offline'}, vis: {isVisible ? 'visible' : 'hidden'})</span></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last tick: <strong>{lastTick ? new Date(lastTick).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
+        <div style={{ fontSize: 12, opacity: 0.85 }}>Last reconnect reason: <strong>{lastReconnectReasonRef.current}</strong></div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', marginBottom: 12 }}>
+        <div style={{ background: '#101623', borderRadius: 10, padding: 10, border: '1px solid #1f2a44' }}>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Limits</div>
+          <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+            <div>Rate spacing: <strong>{RATE_LIMIT_MS} ms</strong></div>
+            <div>Min reconnect: <strong>{MIN_RECONNECT_MS} ms</strong></div>
+            <div>Backoff now: <strong>{Math.min(backoffRef.current, BACKOFF_MAX_MS)} ms</strong></div>
+            <div>Next allowed action: <strong>{(() => {
+              const next = (lastActionAtRef.current || 0) + RATE_LIMIT_MS;
+              const rem = Math.max(0, next - Date.now());
+              return rem + ' ms';
+            })()}</strong></div>
+            <div>Last action at: <strong>{lastActionAtRef.current ? new Date(lastActionAtRef.current).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
+            <div>Action window: <strong>{actionsWindowRef.current.length}/{ACTION_WINDOW_MAX}</strong> in last {ACTION_WINDOW_MS/1000}s</div>
+          </div>
+        </div>
+
+        <div style={{ background: '#101623', borderRadius: 10, padding: 10, border: '1px solid #1f2a44' }}>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Telemetry</div>
+          <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+            <div>Connect attempts: <strong>{countersRef.current.connectAttempts}</strong></div>
+            <div>Subscribes sent: <strong>{countersRef.current.subscribeSends}</strong></div>
+            <div>Closes: <strong>{countersRef.current.closes}</strong> • Errors: <strong>{countersRef.current.errors}</strong></div>
+            <div>Watchdog resets: <strong>{countersRef.current.watchdogResets}</strong></div>
+            <div>Rate-delayed actions: <strong>{countersRef.current.rateDelayed}</strong> • Queued actions: <strong>{countersRef.current.queuedActions}</strong></div>
+            <div>Consecutive failures: <strong>{failCountRef.current}</strong></div>
+            <div>Avg tick: <strong>{avgTickMsRef.current ? (avgTickMsRef.current/1000).toFixed(1) + 's' : '—'}</strong></div>
+          </div>
+        </div>
       </div>
 
       <p style={{ opacity: 0.85, marginBottom: 16 }}>
@@ -351,26 +477,17 @@ ws.onclose = () => {
             TOKENS.forEach(t => { if (prices[t.symbol]) copy[t.symbol] = prices[t.symbol]; });
             return copy;
           });
-          setLogs(l => [...msgs, ...l]);
+          log(msgs.join('\n') || 'No baselines updated (no prices yet)')
         }}>Reset baselines to current</button>
 
         <button style={{ marginLeft: 8 }} onClick={() => {
           const msgs = [];
           TOKENS.forEach(t => { localStorage.removeItem(storageKey(t.symbol)); msgs.push(`${t.symbol} baseline cleared (${nowPT()} PT)`); })
           setBaselines(() => { const o = {}; TOKENS.forEach(t => o[t.symbol] = null); return o; })
-          setLogs(l => [...msgs, ...l])
+          log(msgs.join('\n'))
         }}>Clear baselines</button>
 
-        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() }} disabled={connectingRef.current}>Reconnect</button>
-      </div>
-
-      
-      <div style={{ marginTop: 16, fontSize: 12, opacity: 0.85 }}>
-        <h2 style={{ fontSize: 14, opacity: 0.85, marginBottom: 6 }}>Limits</h2>
-        <div style={{ background: '#141a24', borderRadius: 8, padding: 10 }}>
-          <div>Backoff delay: {backoffRef.current} ms</div>
-          <div>Next allowed action at: {new Date(lastActionAtRef.current + RATE_LIMIT_MS).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' })} PT</div>
-        </div>
+        <button style={{ marginLeft: 8 }} onClick={() => { log(`Manual reconnect requested (${nowPT()} PT)`); scheduleReconnect('manual') }} disabled={connectingRef.current}>Reconnect</button>
       </div>
 
       <div style={{ marginTop: 16 }}>
