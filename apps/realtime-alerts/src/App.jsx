@@ -6,7 +6,7 @@ const TOKENS = [
   { symbol: 'ETH', pair: 'ETH/USD', subscribePair: 'ETH/USD' },
   { symbol: 'SOL', pair: 'SOL/USD', subscribePair: 'SOL/USD' },
 ]
-const DEFAULT_THRESHOLD_PCT = 5 // ±5%
+const DEFAULT_THRESHOLD_PCT = 1 // ±5%
 const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7am PT
 
 // ---- Helpers ----
