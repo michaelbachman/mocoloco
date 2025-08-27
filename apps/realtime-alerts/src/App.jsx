@@ -11,7 +11,6 @@ const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7
 function pctChange(curr, base) {
   if (!base || base === 0) return 0;
   return ((curr - base) / base) * 100;
-}`, ...l])}>(curr - base) / base) * 100
 }
 function inQuietHours(date = new Date()) {
   const pt = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
@@ -21,31 +20,14 @@ function inQuietHours(date = new Date()) {
   } else {
     return (h >= QUIET_HOURS.start && h < QUIET_HOURS.end);
   }
-}));
-  const h = pt.getHours();
-  if (QUIET_HOURS.start > QUIET_HOURS.end) {
-    return (h >= QUIET_HOURS.start) || (h < QUIET_HOURS.end);
-  } else {
-    return (h >= QUIET_HOURS.start && h < QUIET_HOURS.end);
-  }
-}))
-  const h = pt.getHours()
-  // Quiet interval spans overnight
-  if (QUIET_HOURS.start > QUIET_HOURS.end) {
-    return (
-     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>h >= QUIET_HOURS.start) || (h < QUIET_HOURS.end)
-  } else {
-    return (
-     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>h >= QUIET_HOURS.start && h < QUIET_HOURS.end)
-  }
 }
 function fmtUSD(n) {
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 }
 function nowPT() {
-  return new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
+  return new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
 }
-function storageKey(sym) { return `baseline_${sym}` }
+function storageKey(sym) { return `baseline_${sym}`; }
 
 async function sendTelegram(message) {
   try {
@@ -53,30 +35,14 @@ async function sendTelegram(message) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
-    })
+    });
     if (!res.ok) {
-      console.warn('Telegram send failed', await res.text())
+      console.warn('Telegram send failed', await res.text());
     }
   } catch (e) {
-    console.warn('Telegram send error', e)
+    console.warn('Telegram send error', e);
   }
 }
-
-
-function ErrorBoundary({ children, onError }) {
-  return (
-     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>
-    <React.ErrorBoundary
-      fallbackRender={({ error }) => {
-        if (onError) onError(error)
-        return <div style={{ background: '#441515', color: '#fca5a5', padding: '8px', borderRadius: '6px' }}>⚠️ Runtime Error: {error.message}</div>
-      }}
-    >
-      {children}
-    </React.ErrorBoundary>
-  )
-}
-
 
 export default function App() {
   const [prices, setPrices] = useState({})
