@@ -9,13 +9,19 @@ const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7
 
 // ---- Helpers ----
 function pctChange(curr, base) {
-  if (!base || base === 0) return 0
-  return (
-    <ErrorBoundary onError={(err) => setLogs(l => [`Runtime error: ${err.message}`, ...l])}>(curr - base) / base) * 100
+  if (!base || base === 0) return 0;
+  return ((curr - base) / base) * 100;
+}`, ...l])}>(curr - base) / base) * 100
 }
 function inQuietHours(date = new Date()) {
-  // Quiet hours local to PT; this is a simple client-side check
-  const pt = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const pt = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const h = pt.getHours();
+  if (QUIET_HOURS.start > QUIET_HOURS.end) {
+    return (h >= QUIET_HOURS.start) || (h < QUIET_HOURS.end);
+  } else {
+    return (h >= QUIET_HOURS.start && h < QUIET_HOURS.end);
+  }
+}))
   const h = pt.getHours()
   // Quiet interval spans overnight
   if (QUIET_HOURS.start > QUIET_HOURS.end) {
@@ -36,7 +42,7 @@ function storageKey(sym) { return `baseline_${sym}` }
 
 async function sendTelegram(message) {
   try {
-    const res = await fetch('/.netlify/functions/telegram', {
+    const res = await fetch('/api/telegram', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
