@@ -88,6 +88,16 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
   const [limitsTick, setLimitsTick] = useState(0) // 1s ticker for panel
+  const [panel, setPanel] = useState({
+    backoff: 0,
+    lastActionAt: 0,
+    nextAllowedMs: 0,
+    windowCount: 0,
+    counters: { connectAttempts: 0, subscribeSends: 0, errors: 0, closes: 0, watchdogResets: 0, rateDelayed: 0, queuedActions: 0 },
+    failCount: 0,
+    avgTickMs: null,
+  })
+  const [liveLogs, setLiveLogs] = useState(false)
 
   // Refs
   const wsRef = useRef(null)
@@ -122,6 +132,17 @@ export default function App() {
       setLimitsTick(t => (t + 1) % 1_000_000)
       persistNumber('pro_backoff_ms', backoffRef.current)
       persistNumber('pro_last_action_at', lastActionAtRef.current)
+      // Snapshot refs into panel state for deterministic UI updates
+      const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
+      setPanel({
+        backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
+        lastActionAt: lastActionAtRef.current || 0,
+        nextAllowedMs: nextAllowed,
+        windowCount: actionsWindowRef.current.length,
+        counters: { ...countersRef.current },
+        failCount: failCountRef.current,
+        avgTickMs: avgTickMsRef.current,
+      })
     }, 1000)
     return () => clearInterval(iv)
   }, [])
@@ -154,19 +175,32 @@ export default function App() {
     }
   }, [])
 
-  // ---- Logging (batched, flush every 10s) ----
-  function log(msg) {
-    logsBufferRef.current.unshift(msg)
-    if (!flushTimerRef.current) {
-      flushTimerRef.current = setTimeout(() => {
-        setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
-        logsBufferRef.current = []
-        flushTimerRef.current = null
-      }, 10000) // flush ~10s
-    }
+  // ---- Logging (batched, flush every 10s; Live Logs bypasses batching) ----
+function forceFlush() {
+  if (logsBufferRef.current.length) {
+    setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
+    logsBufferRef.current = []
   }
-
-  // ---- Sliding-window, rate-limited action queue ----
+  if (flushTimerRef.current) {
+    clearTimeout(flushTimerRef.current)
+    flushTimerRef.current = null
+  }
+}
+function log(msg) {
+  if (liveLogs) {
+    setLogs(l => [msg, ...l].slice(0, 1000))
+    return
+  }
+  logsBufferRef.current.unshift(msg)
+  if (!flushTimerRef.current) {
+    flushTimerRef.current = setTimeout(() => {
+      setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
+      logsBufferRef.current = []
+      flushTimerRef.current = null
+    }, 10000) // flush ~10s
+  }
+}
+// ---- Sliding-window, rate-limited action queue ----
   function withinWindowLimit(now) {
     const arr = actionsWindowRef.current
     // prune old
@@ -442,27 +476,27 @@ export default function App() {
           <div style={{ fontSize: 12, lineHeight: 1.5 }}>
             <div>Rate spacing: <strong>{RATE_LIMIT_MS} ms</strong></div>
             <div>Min reconnect: <strong>{MIN_RECONNECT_MS} ms</strong></div>
-            <div>Backoff now: <strong>{Math.min(backoffRef.current, BACKOFF_MAX_MS)} ms</strong></div>
+            <div>Backoff now: <strong>{panel.backoff} ms</strong></div>
             <div>Next allowed action: <strong>{(() => {
-              const next = (lastActionAtRef.current || 0) + RATE_LIMIT_MS;
-              const rem = Math.max(0, next - Date.now());
+              const next = (panel.lastActionAt || 0) + RATE_LIMIT_MS;
+              const rem = panel.nextAllowedMs;
               return rem + ' ms';
             })()}</strong></div>
-            <div>Last action at: <strong>{lastActionAtRef.current ? new Date(lastActionAtRef.current).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
-            <div>Action window: <strong>{actionsWindowRef.current.length}/{ACTION_WINDOW_MAX}</strong> in last {ACTION_WINDOW_MS/1000}s</div>
+            <div>Last action at: <strong>{panel.lastActionAt ? new Date(panel.lastActionAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
+            <div>Action window: <strong>{panel.windowCount}/{ACTION_WINDOW_MAX}</strong> in last {ACTION_WINDOW_MS/1000}s</div>
           </div>
         </div>
 
         <div style={{ background: '#101623', borderRadius: 10, padding: 10, border: '1px solid #1f2a44' }}>
           <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Telemetry</div>
           <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-            <div>Connect attempts: <strong>{countersRef.current.connectAttempts}</strong></div>
-            <div>Subscribes sent: <strong>{countersRef.current.subscribeSends}</strong></div>
-            <div>Closes: <strong>{countersRef.current.closes}</strong> • Errors: <strong>{countersRef.current.errors}</strong></div>
-            <div>Watchdog resets: <strong>{countersRef.current.watchdogResets}</strong></div>
-            <div>Rate-delayed actions: <strong>{countersRef.current.rateDelayed}</strong> • Queued actions: <strong>{countersRef.current.queuedActions}</strong></div>
-            <div>Consecutive failures: <strong>{failCountRef.current}</strong></div>
-            <div>Avg tick: <strong>{avgTickMsRef.current ? (avgTickMsRef.current/1000).toFixed(1) + 's' : '—'}</strong></div>
+            <div>Connect attempts: <strong>{panel.counters.connectAttempts}</strong></div>
+            <div>Subscribes sent: <strong>{panel.counters.subscribeSends}</strong></div>
+            <div>Closes: <strong>{panel.counters.closes}</strong> • Errors: <strong>{panel.counters.errors}</strong></div>
+            <div>Watchdog resets: <strong>{panel.counters.watchdogResets}</strong></div>
+            <div>Rate-delayed actions: <strong>{panel.counters.rateDelayed}</strong> • Queued actions: <strong>{panel.counters.queuedActions}</strong></div>
+            <div>Consecutive failures: <strong>{panel.failCount}</strong></div>
+            <div>Avg tick: <strong>{panel.avgTickMs ? (panel.avgTickMs/1000).toFixed(1) + 's' : '—'}</strong></div>
           </div>
         </div>
       </div>
@@ -522,6 +556,11 @@ export default function App() {
         >
           Reconnect
         </button>
+<label style={{ marginLeft: 12, fontSize: 12 }}>
+  <input type="checkbox" checked={liveLogs} onChange={e => setLiveLogs(e.target.checked)} style={{ marginRight: 6 }} />
+  Live Logs (show immediately)
+</label>
+<button style={{ marginLeft: 8 }} onClick={() => forceFlush()}>Flush now</button>
       </div>
 
       <div style={{ marginTop: 16 }}>
