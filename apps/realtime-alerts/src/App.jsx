@@ -118,11 +118,9 @@ export default function App() {
   if (reconnectRef.current) clearTimeout(reconnectRef.current)
   if (!isOnline) {
     setLogs(l => ['Reconnect deferred: offline', ...l])
-    // try again in a gentle interval while offline
     reconnectRef.current = setTimeout(scheduleReconnect, Math.max(MIN_RECONNECT_MS, 15000))
     return
   }
-  // ensure minimum spacing between reconnect attempts; slow down if tab is hidden
   const now = Date.now()
   const sinceLast = now - lastActionAtRef.current
   const minGap = Math.max(MIN_RECONNECT_MS * (isVisible ? 1 : 2), RATE_LIMIT_MS * 2)
@@ -137,14 +135,8 @@ export default function App() {
 
   const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
   setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
-}, Math.max(delay, 0))
-
-    const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
-    setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
-  }
-
-
-  function connectWS() {
+}
+function connectWS() {
   if (!isOnline) {
     setLogs(l => ['Skipped connect: offline', ...l])
     scheduleReconnect()
