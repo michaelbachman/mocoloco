@@ -64,88 +64,23 @@ export default function App() {
   const wsRef = useRef(null)
 
   useEffect(() => {
-    const ws = new WebSocket('wss://ws.kraken.com')
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      setWsStatus('Connected');
-      setWsStatus('connected')
-      const subscribe = {
-        event: 'subscribe',
-        pair: TOKENS.map(t => t.subscribePair),
-        subscription: { name: 'ticker' },
+    connectWS()
+    // Stale connection watchdog: if no tick for 45s, reconnect
+    if (staleCheckRef.current) clearInterval(staleCheckRef.current)
+    staleCheckRef.current = setInterval(() => {
+      if (!lastTick) return
+      const last = new Date(lastTick.replace(' PT',''))
+      const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const diff = now - last
+      if (diff > 45000) {
+        setLogs(l => [`Watchdog: reconnecting after ${(diff/1000).toFixed(0)}s idle`, ...l])
+        connectWS()
       }
-      ws.send(JSON.stringify(subscribe))
-      setLogs(l => [`WS connected ${nowPT()}`, ...l])
+    }, 15000)
+    return () => {
+      if (staleCheckRef.current) clearInterval(staleCheckRef.current)
+      if (wsRef.current) try { wsRef.current.close() } catch {}
     }
-
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data)
-        if (Array.isArray(data) && data.length >= 2) {
-          const payload = data[1]
-          const channelInfo = data[data.length - 1]
-          const pair = channelInfo?.pair || ''
-          const token = TOKENS.find(t => pair.includes(t.pair.replace('/', '')) || pair.includes(t.pair) || pair.includes(t.symbol))
-          if (!token) return
-          const last = parseFloat(payload?.c?.[0] || payload?.p?.[0])
-          if (!isFinite(last)) return
-
-          setLastTick(nowPT())
-
-          setPrices(prev => ({ ...prev, [token.symbol]: last }))
-          // Always log the price tick
-          setLogs(l => [
-            `${token.symbol} tick: ${fmtUSD(last)} (${nowPT()} PT)`,
-            ...l
-          ])
-
-          // Baseline init
-          let base = baselines[token.symbol]
-          if (!base) {
-            base = last
-            localStorage.setItem(storageKey(token.symbol), String(base))
-            setBaselines(b => ({ ...b, [token.symbol]: base }))
-            setLogs(l => [`${token.symbol} baseline initialized at ${fmtUSD(base)} (${nowPT()})`, ...l])
-            return
-          }
-
-          const pct = pctChange(last, base)
-          const absUsd = last - base
-          const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
-
-          if (crossed) {
-            // Respect quiet hours
-            if (!inQuietHours()) {
-              const direction = pct > 0 ? 'up' : 'down'
-              const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})
-Price: ${fmtUSD(last)}
-Prior baseline: ${fmtUSD(base)}
-Time: ${nowPT()} PT`
-              sendTelegram(msg)
-              setLogs(l => [msg, ...l])
-            } else {
-              setLogs(l => [`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`, ...l])
-            }
-
-            // Rolling baseline
-            localStorage.setItem(storageKey(token.symbol), String(last))
-            setBaselines(b => ({ ...b, [token.symbol]: last }))
-          }
-        } else if (data?.event === 'heartbeat') {
-          // ignore
-        } else if (data?.event) {
-          setLogs(l => [`${data.event}: ${JSON.stringify(data)}`, ...l])
-        }
-      } catch (e) {
-        console.warn('WS parse error', e)
-      }
-    }
-
-    ws.onclose = () => { setWsStatus('Closed'); setLogs(l => [`WS closed ${nowPT()}`, ...l]); };
-    ws.onerror = (e) => { setWsStatus('Error'); setLogs(l => [`WS error ${nowPT()}`, ...l]); };
-
-    return () => ws.close()
   }, [])
 
   return (
@@ -188,10 +123,12 @@ Time: ${nowPT()} PT`
           setLogs(l => [`Manual: baselines reset to current prices at ${nowPT()}`, ...l])
         }}>Reset baselines to current</button>
         <button style={{ marginLeft: 8 }} onClick={() => {
-          TOKENS.forEach(t => localStorage.removeItem(storageKey(t.symbol)))
+          const msgs = [];
+          TOKENS.forEach(t => { localStorage.removeItem(storageKey(t.symbol)); msgs.push(`${t.symbol} baseline cleared (${nowPT()} PT)`); })
           setBaselines({ BTC: null, ETH: null, SOL: null })
-          setLogs(l => [`Manual: baselines cleared at ${nowPT()}`, ...l])
+          setLogs(l => [...msgs, ...l])
         }}>Clear baselines</button>
+        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() }}>Reconnect</button>
       </div>
 
       <div style={{ marginTop: 16 }}>
