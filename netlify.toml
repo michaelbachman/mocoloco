@@ -1,10 +1,9 @@
 #
-# Netlify config for Kraken real-time alerts
-#
+# Netlify config for Kraken real-time alerts (BTC-only)
+# Fix: build runs from repo root, cd into app subdir; publish correct dist; functions at repo root
 [build]
-  base = "apps/realtime-alerts"
+  command = "cd apps/realtime-alerts && npm install --no-audit --no-fund && npm run build"
   publish = "apps/realtime-alerts/dist"
-  command = "npm install --no-audit --no-fund && npm run build"
 
 [functions]
   directory = "netlify/functions"
@@ -14,7 +13,6 @@
 [build.environment]
   NODE_VERSION = "18"
 
-# Redirect function endpoint
 [[redirects]]
   from = "/.netlify/functions/*"
   to = "/.netlify/functions/:splat"
