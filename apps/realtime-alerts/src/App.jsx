@@ -7,6 +7,13 @@ const TOKENS = [
 const DEFAULT_THRESHOLD_PCT = 1 // ±1%
 const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7am PT
 
+// ---- Rate limiting (Kraken WS guidance ~1 req/sec)
+const RATE_LIMIT_MS = 1200      // min gap between subscribe/connect actions
+const MIN_RECONNECT_MS = 5000   // don't reconnect faster than this
+const BACKOFF_START_MS = 5000   // start backoff at 5s
+const BACKOFF_MAX_MS = 60000    // cap backoff at 60s
+
+
 // ---- Helpers ----
 function pctChange(curr, base) {
   if (!base || base === 0) return 0
@@ -61,7 +68,8 @@ export default function App() {
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const staleCheckRef = useRef(null)
-  const backoffRef = useRef(2000)
+  const backoffRef = useRef(BACKOFF_START_MS)
+    const lastActionAtRef = useRef(0) // last connect/subscribe timestamp (ms)
 
   useEffect(() => {
     // Global error listeners
@@ -85,31 +93,62 @@ export default function App() {
   }, [])
 
   function scheduleReconnect() {
-    if (reconnectRef.current) clearTimeout(reconnectRef.current)
-    const delay = Math.min(backoffRef.current, 60000)
-    reconnectRef.current = setTimeout(() => {
-      backoffRef.current = Math.min(backoffRef.current * 2, 60000)
-      connectWS()
-    }, delay)
+  if (reconnectRef.current) clearTimeout(reconnectRef.current)
+  // ensure minimum spacing between reconnect attempts
+  const now = Date.now()
+  const sinceLast = now - lastActionAtRef.current
+  const minGap = Math.max(MIN_RECONNECT_MS, RATE_LIMIT_MS)
+  const baseDelay = Math.min(backoffRef.current, BACKOFF_MAX_MS)
+  const jitter = Math.floor(Math.random() * 1000) // up to 1s jitter
+  const delay = Math.max(baseDelay + jitter, minGap - sinceLast)
+
+  reconnectRef.current = setTimeout(() => {
+    backoffRef.current = Math.min(backoffRef.current * 2, BACKOFF_MAX_MS)
+    connectWS()
+  }, Math.max(delay, 0))
+
+  const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
+  setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
+}, delay)
     setLogs(l => [`Reconnecting in ${(delay/1000).toFixed(0)}s...`, ...l])
   }
 
   function connectWS() {
-    if (wsRef.current) { try { wsRef.current.close() } catch {} }
-    const ws = new WebSocket('wss://ws.kraken.com')
-    wsRef.current = ws
-    setWsStatus('Connecting')
+  if (wsRef.current) { try { wsRef.current.close() } catch {} }
+  const now = Date.now()
+  const sinceLast = now - lastActionAtRef.current
+  if (sinceLast < RATE_LIMIT_MS) {
+    const wait = RATE_LIMIT_MS - sinceLast
+    setLogs(l => [`Rate limit: delaying connect ${Math.ceil(wait)}ms`, ...l])
+    setTimeout(connectWS, wait)
+    return
+  }
+  lastActionAtRef.current = now
 
-    ws.onopen = () => {
-      setWsStatus('Connected')
-      backoffRef.current = 2000
-      const subscribe = {
-        event: 'subscribe',
-        pair: TOKENS.map(t => t.subscribePair),
-        subscription: { name: 'ticker' },
-      }
+  const ws = new WebSocket('wss://ws.kraken.com')
+  wsRef.current = ws
+  setWsStatus('Connecting')
+
+  ws.onopen = () => {
+    setWsStatus('Connected')
+    backoffRef.current = BACKOFF_START_MS
+    const subscribe = {
+      event: 'subscribe',
+      pair: TOKENS.map(t => t.subscribePair),
+      subscription: { name: 'ticker' },
+    }
+    const since = Date.now() - lastActionAtRef.current
+    const doSubscribe = () => {
       ws.send(JSON.stringify(subscribe))
-      setLogs(l => [`WS connected ${nowPT()}`, ...l])
+      lastActionAtRef.current = Date.now()
+      setLogs(l => [`WS connected ${nowPT()} (subscribed: ${TOKENS.map(t=>t.subscribePair).join(', ')})`, ...l])
+    }
+    if (since < RATE_LIMIT_MS) {
+      const waitMs = RATE_LIMIT_MS - since
+      setTimeout(doSubscribe, waitMs)
+    } else {
+      doSubscribe()
+    }(l => [`WS connected ${nowPT()}`, ...l])
     }
 
     ws.onmessage = (ev) => {
