@@ -63,15 +63,21 @@ export default function App() {
   })
   const [logs, setLogs] = useState([])
   const [wsStatus, setWsStatus] = useState('Disconnected')
-  const [lastTick, setLastTick] = useState(null)
+  const [lastTick, setLastTick] = useState(0)
   const [runtimeError, setRuntimeError] = useState(null)
+    const [limitsTick, setLimitsTick] = useState(0)
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const staleCheckRef = useRef(null)
   const backoffRef = useRef(BACKOFF_START_MS)
+    const connectingRef = useRef(false)
+    const unmappedCountRef = useRef(0)
     const lastActionAtRef = useRef(0) // last connect/subscribe timestamp (ms)
 
   useEffect(() => {
+      // lightweight 1s ticker for limits panel
+      const iv = setInterval(() => setLimitsTick(t => (t + 1) % 1_000_000), 1000)
+
     // Global error listeners
     function onError(e) {
       const msg = `Runtime error: ${e.message}`
@@ -87,6 +93,8 @@ export default function App() {
     window.addEventListener('error', onError)
     window.addEventListener('unhandledrejection', onRejection)
     return () => {
+        clearInterval(iv)
+
       window.removeEventListener('error', onError)
       window.removeEventListener('unhandledrejection', onRejection)
     }
@@ -114,6 +122,9 @@ export default function App() {
 
 
   function connectWS() {
+    if (connectingRef.current) { setLogs(l => ['Skipped connect: already connecting', ...l]); return }
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) { setLogs(l => ['Reconnect skipped: socket not CLOSED', ...l]); return }
+    connectingRef.current = true
   if (wsRef.current) { try { wsRef.current.close() } catch {} }
   const now = Date.now()
   const sinceLast = now - lastActionAtRef.current
@@ -125,11 +136,14 @@ export default function App() {
   }
   lastActionAtRef.current = now
 
-  const ws = new WebSocket('wss://ws.kraken.com')
+  connectingRef.current = true /*pyfix*/
+      const ws = new WebSocket('wss://ws.kraken.com')
   wsRef.current = ws
   setWsStatus('Connecting')
 
   ws.onopen = () => {
+        connectingRef.current = false
+    connectingRef.current = false
     setWsStatus('Connected')
     backoffRef.current = BACKOFF_START_MS
     const subscribe = {
@@ -165,7 +179,7 @@ export default function App() {
         const normSym = t.symbol.replace(/[^A-Za-z]/g, '').toUpperCase()
         return normMsg.includes(normCfg) || normMsg.includes(normSym)
       })
-      if (!token) { setLogs(l => [`Unmapped pair in message: ${pairStr || '(empty)'} (${nowPT()} PT)`, ...l]); return }
+      if (!token) { if (unmappedCountRef.current < 5) { setLogs(l => [`Unmapped pair in message: ${pairStr || '(empty)'} (${nowPT()} PT)`, ...l]); unmappedCountRef.current++ } return }
 
       const last = parseFloat((payload && payload.c && payload.c[0]) || (payload && payload.a && payload.a[0]) || (payload && payload.p && payload.p[0]))
       if (!isFinite(last)) return
@@ -176,7 +190,7 @@ export default function App() {
       setLogs(l => [`${token.symbol} tick: ${fmtUSD(last)} (${nowPT()} PT)`, ...l])
 
       // update last tick timestamp
-      setLastTick(nowPT())
+      setLastTick(Date.now())
 
       // Baseline init
       let base = baselines[token.symbol]
@@ -212,11 +226,15 @@ export default function App() {
   }
 }
 ws.onclose = () => {
+      connectingRef.current = false
+    connectingRef.current = false
       setWsStatus('Closed')
       setLogs(l => [`WS closed ${nowPT()}`, ...l])
       scheduleReconnect()
     }
     ws.onerror = () => {
+      connectingRef.current = false
+    connectingRef.current = false
       setWsStatus('Error')
       setLogs(l => [`WS error ${nowPT()}`, ...l])
       scheduleReconnect()
@@ -229,9 +247,7 @@ ws.onclose = () => {
     if (staleCheckRef.current) clearInterval(staleCheckRef.current)
     staleCheckRef.current = setInterval(() => {
       if (!lastTick) return
-      const last = new Date(lastTick.replace(' PT',''))
-      const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-      const diff = now - last
+      const diff = Date.now() - lastTick
       if (diff > 45000) {
         setLogs(l => [`Watchdog: reconnecting after ${(diff/1000).toFixed(0)}s idle`, ...l])
         connectWS()
@@ -254,8 +270,25 @@ ws.onclose = () => {
       )}
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', marginBottom: 8 }}>
+<div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginBottom: 12 }}>
+  <div style={{ background: '#101623', borderRadius: 10, padding: 10, border: '1px solid #1f2a44' }}>
+    <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Limits</div>
+    <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+      <div>Rate spacing: <strong>{RATE_LIMIT_MS} ms</strong></div>
+      <div>Min reconnect: <strong>{MIN_RECONNECT_MS} ms</strong></div>
+      <div>Backoff now: <strong>{Math.min(backoffRef.current, BACKOFF_MAX_MS)} ms</strong></div>
+      <div>Next allowed action: <strong>{(() => {
+        const next = (lastActionAtRef.current || 0) + RATE_LIMIT_MS;
+        const rem = Math.max(0, next - Date.now());
+        return rem + ' ms';
+      })()}</strong></div>
+      <div>Last action at: <strong>{lastActionAtRef.current ? new Date(lastActionAtRef.current).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
+    </div>
+  </div>
+</div>
+
         <div style={{ fontSize: 12, opacity: 0.85 }}>WS Status: <strong>{wsStatus}</strong></div>
-        <div style={{ fontSize: 12, opacity: 0.85 }}>Last tick: <strong>{lastTick ? lastTick + ' PT' : '—'}</strong></div>
+        <div style={{ fontSize: 12, opacity: 0.85 }}>Last tick: <strong>{lastTick ? new Date(lastTick).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
       </div>
 
       <p style={{ opacity: 0.85, marginBottom: 16 }}>
