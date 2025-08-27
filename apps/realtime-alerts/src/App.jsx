@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react'
 
 // ---- Config ----
@@ -44,12 +45,8 @@ function nowPT() {
   return new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
 }
 function storageKey(sym) { return `baseline_${sym}` }
-function persistNumber(key, val) {
-  try { localStorage.setItem(key, String(val)) } catch {}
-}
-function loadNumber(key, fallback = 0) {
-  try { const v = localStorage.getItem(key); return v ? Number(v) : fallback } catch { return fallback }
-}
+function persistNumber(key, val) { try { localStorage.setItem(key, String(val)) } catch {} }
+function loadNumber(key, fallback = 0) { try { const v = localStorage.getItem(key); return v ? Number(v) : fallback } catch { return fallback } }
 function parseLastPrice(payload){
   const cand = [payload?.c?.[0], payload?.a?.[0], payload?.p?.[0]].map(x => x!=null ? parseFloat(x) : NaN);
   const val = cand.find(v => Number.isFinite(v));
@@ -63,9 +60,7 @@ async function sendTelegram(message) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     })
-    if (!res.ok) {
-      console.warn('Telegram send failed', await res.text())
-    }
+    if (!res.ok) console.warn('Telegram send failed', await res.text())
   } catch (e) {
     console.warn('Telegram send error', e)
   }
@@ -82,6 +77,7 @@ export default function App() {
     return obj
   })
   const [logs, setLogs] = useState([])
+  const [liveLogs, setLiveLogs] = useState(false)
   const [wsStatus, setWsStatus] = useState('Disconnected')
   const [lastTick, setLastTick] = useState(null) // numeric ms timestamp
   const [runtimeError, setRuntimeError] = useState(null)
@@ -89,15 +85,10 @@ export default function App() {
   const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
   const [limitsTick, setLimitsTick] = useState(0) // 1s ticker for panel
   const [panel, setPanel] = useState({
-    backoff: 0,
-    lastActionAt: 0,
-    nextAllowedMs: 0,
-    windowCount: 0,
+    backoff: 0, lastActionAt: 0, nextAllowedMs: 0, windowCount: 0,
     counters: { connectAttempts: 0, subscribeSends: 0, errors: 0, closes: 0, watchdogResets: 0, rateDelayed: 0, queuedActions: 0 },
-    failCount: 0,
-    avgTickMs: null,
+    failCount: 0, avgTickMs: null, ts: 0,
   })
-  const [liveLogs, setLiveLogs] = useState(false)
 
   // Refs
   const wsRef = useRef(null)
@@ -116,15 +107,11 @@ export default function App() {
   const lastAlertRef = useRef(new Map())
   const dailyCapRef = useRef({ day: null, count: 0 })
   const countersRef = useRef({
-    connectAttempts: 0,
-    subscribeSends: 0,
-    errors: 0,
-    closes: 0,
-    watchdogResets: 0,
-    rateDelayed: 0,
-    queuedActions: 0,
+    connectAttempts: 0, subscribeSends: 0, errors: 0, closes: 0,
+    watchdogResets: 0, rateDelayed: 0, queuedActions: 0,
   })
   const avgTickMsRef = useRef(null) // moving avg of tick intervals
+  const panelIvRef = useRef(null)
 
   // Persist certain refs when they change (via a lightweight 1s ticker)
   useEffect(() => {
@@ -132,17 +119,6 @@ export default function App() {
       setLimitsTick(t => (t + 1) % 1_000_000)
       persistNumber('pro_backoff_ms', backoffRef.current)
       persistNumber('pro_last_action_at', lastActionAtRef.current)
-      // Snapshot refs into panel state for deterministic UI updates
-      const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
-      setPanel({
-        backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
-        lastActionAt: lastActionAtRef.current || 0,
-        nextAllowedMs: nextAllowed,
-        windowCount: actionsWindowRef.current.length,
-        counters: { ...countersRef.current },
-        failCount: failCountRef.current,
-        avgTickMs: avgTickMsRef.current,
-      })
     }, 1000)
     return () => clearInterval(iv)
   }, [])
@@ -176,35 +152,35 @@ export default function App() {
   }, [])
 
   // ---- Logging (batched, flush every 10s; Live Logs bypasses batching) ----
-function forceFlush() {
-  if (logsBufferRef.current.length) {
-    setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
-    logsBufferRef.current = []
-  }
-  if (flushTimerRef.current) {
-    clearTimeout(flushTimerRef.current)
-    flushTimerRef.current = null
-  }
-}
-function log(msg) {
-  if (liveLogs) {
-    setLogs(l => [msg, ...l].slice(0, 1000))
-    return
-  }
-  logsBufferRef.current.unshift(msg)
-  if (!flushTimerRef.current) {
-    flushTimerRef.current = setTimeout(() => {
+  function forceFlush() {
+    if (logsBufferRef.current.length) {
       setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
       logsBufferRef.current = []
+    }
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current)
       flushTimerRef.current = null
-    }, 10000) // flush ~10s
+    }
   }
-}
-// ---- Sliding-window, rate-limited action queue ----
+  function log(msg) {
+    if (liveLogs) {
+      setLogs(l => [msg, ...l].slice(0, 1000))
+      return
+    }
+    logsBufferRef.current.unshift(msg)
+    if (!flushTimerRef.current) {
+      flushTimerRef.current = setTimeout(() => {
+        setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
+        logsBufferRef.current = []
+        flushTimerRef.current = null
+      }, 10000) // flush ~10s
+    }
+  }
+
+  // ---- Sliding-window, rate-limited action queue ----
   function withinWindowLimit(now) {
     const arr = actionsWindowRef.current
-    // prune old
-    while (arr.length && (now - arr[0] > ACTION_WINDOW_MS)) arr.shift()
+    while (arr.length && (now - arr[0] > ACTION_WINDOW_MS)) arr.shift() // prune old
     return arr.length < ACTION_WINDOW_MAX
   }
   function noteAction(now) {
@@ -214,7 +190,6 @@ function log(msg) {
   function delayForLimits(name, now) {
     const since = now - lastActionAtRef.current
     let delay = Math.max(0, RATE_LIMIT_MS - since)
-    // If window full, wait until it frees up
     const arr = actionsWindowRef.current
     if (arr.length >= ACTION_WINDOW_MAX) {
       const head = arr[0]
@@ -233,7 +208,6 @@ function log(msg) {
     countersRef.current.queuedActions++
     setTimeout(() => {
       const t = Date.now()
-      // double-check window
       if (!withinWindowLimit(t)) {
         const d2 = delayForLimits(name + ' (retry)', t)
         return setTimeout(() => queueAction(name, fn), d2)
@@ -267,10 +241,7 @@ function log(msg) {
     }
     lastReconnectReasonRef.current = reason
     let extraCooldown = 0
-    if (failCountRef.current >= 5) {
-      extraCooldown = 60000 // +60s after 5 consecutive failures
-    }
-    // visibility-aware pacing
+    if (failCountRef.current >= 5) extraCooldown = 60000 // +60s after 5 consecutive failures
     const base = isVisible ? backoffRef.current : backoffRef.current * 2
     let delay = Math.max(base, MIN_RECONNECT_MS) + extraCooldown + Math.floor(Math.random() * 3000)
     if (BROWNOUT_MODE) delay = Math.floor(delay * BROWNOUT_MULTIPLIER)
@@ -284,7 +255,6 @@ function log(msg) {
 
   // ---- Connect WS (guarded) ----
   function connectWS() {
-    // prevent overlaps
     if (connectingRef.current) { log('Skipped connect: already connecting'); return }
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       log('Reconnect skipped: socket not CLOSED'); return
@@ -310,7 +280,6 @@ function log(msg) {
 
       ws.onopen = () => {
         setWsStatus('Connected')
-        // subscribe (rate-limited action)
         const subscribe = {
           event: 'subscribe',
           pair: TOKENS.map(t => t.subscribePair),
@@ -354,8 +323,8 @@ function log(msg) {
               avgTickMsRef.current = prev == null ? diff : Math.round(prev * 0.8 + diff * 0.2)
             }
             setLastTick(nowMs)
-            backoffRef.current = BACKOFF_START_MS // reset backoff only on real tick
-            failCountRef.current = 0 // reset fail counter on data
+            backoffRef.current = BACKOFF_START_MS
+            failCountRef.current = 0
 
             // Throttled price updates
             pricesRef.current = { ...pricesRef.current, [token.symbol]: last }
@@ -384,7 +353,6 @@ function log(msg) {
             const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
 
             if (crossed) {
-              // Alert dedupe per direction
               const key = `${token.symbol}_${pct>0?'up':'down'}`
               const prev = lastAlertRef.current.get(key) || 0
               if (Date.now() - prev < ALERT_DEDUP_MS) {
@@ -435,7 +403,6 @@ function log(msg) {
     const iv = setInterval(() => {
       if (!lastTick) return
       const diff = Date.now() - lastTick
-      // Adaptive threshold: based on recent avg tick interval
       const avg = avgTickMsRef.current || 60000
       let threshold = 60000 // default 60s
       if (avg <= 4000) threshold = 40000
@@ -451,38 +418,38 @@ function log(msg) {
   }, [lastTick])
 
   // ---- Panel heartbeat (1s) ----
-useEffect(() => {
-  const snapshot = () => {
-    const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
-    setPanel({
-      backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
-      lastActionAt: lastActionAtRef.current || 0,
-      nextAllowedMs: nextAllowed,
-      windowCount: actionsWindowRef.current.length,
-      counters: { ...countersRef.current },
-      failCount: failCountRef.current,
-      avgTickMs: avgTickMsRef.current,
-      ts: Date.now(),
-    })
-  }
-  snapshot()
-  panelIvRef.current = setInterval(snapshot, 1000)
-
-  const onVis = () => {
-    if (document.hidden) {
-      if (panelIvRef.current) { clearInterval(panelIvRef.current); panelIvRef.current = null }
-    } else if (!panelIvRef.current) {
-      snapshot()
-      panelIvRef.current = setInterval(snapshot, 1000)
+  useEffect(() => {
+    const snapshot = () => {
+      const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
+      setPanel({
+        backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
+        lastActionAt: lastActionAtRef.current || 0,
+        nextAllowedMs: nextAllowed,
+        windowCount: actionsWindowRef.current.length,
+        counters: { ...countersRef.current },
+        failCount: failCountRef.current,
+        avgTickMs: avgTickMsRef.current,
+        ts: Date.now(),
+      })
     }
-  }
-  document.addEventListener('visibilitychange', onVis)
+    snapshot()
+    panelIvRef.current = setInterval(snapshot, 1000)
 
-  return () => {
-    if (panelIvRef.current) clearInterval(panelIvRef.current)
-    document.removeEventListener('visibilitychange', onVis)
-  }
-}, [])
+    const onVis = () => {
+      if (document.hidden) {
+        if (panelIvRef.current) { clearInterval(panelIvRef.current); panelIvRef.current = null }
+      } else if (!panelIvRef.current) {
+        snapshot()
+        panelIvRef.current = setInterval(snapshot, 1000)
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+
+    return () => {
+      if (panelIvRef.current) clearInterval(panelIvRef.current)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
 
   // Initial connect
   useEffect(() => { connectWS() }, [])
@@ -502,6 +469,7 @@ useEffect(() => {
         <div style={{ fontSize: 12, opacity: 0.85 }}>WS Status: <strong>{wsStatus}</strong> <span style={{ opacity: 0.6 }}>(net: {isOnline ? 'online' : 'offline'}, vis: {isVisible ? 'visible' : 'hidden'})</span></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last tick: <strong>{lastTick ? new Date(lastTick).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last reconnect reason: <strong>{lastReconnectReasonRef.current}</strong></div>
+        <div style={{ fontSize: 11, opacity: 0.6 }}>Panel updated: {panel.ts ? new Date(panel.ts).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }) + ' PT' : '—'}</div>
       </div>
 
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', marginBottom: 12 }}>
@@ -511,11 +479,7 @@ useEffect(() => {
             <div>Rate spacing: <strong>{RATE_LIMIT_MS} ms</strong></div>
             <div>Min reconnect: <strong>{MIN_RECONNECT_MS} ms</strong></div>
             <div>Backoff now: <strong>{panel.backoff} ms</strong></div>
-            <div>Next allowed action: <strong>{(() => {
-              const next = (panel.lastActionAt || 0) + RATE_LIMIT_MS;
-              const rem = panel.nextAllowedMs;
-              return rem + ' ms';
-            })()}</strong></div>
+            <div>Next allowed action: <strong>{panel.nextAllowedMs} ms</strong></div>
             <div>Last action at: <strong>{panel.lastActionAt ? new Date(panel.lastActionAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
             <div>Action window: <strong>{panel.windowCount}/{ACTION_WINDOW_MAX}</strong> in last {ACTION_WINDOW_MS/1000}s</div>
           </div>
@@ -545,40 +509,7 @@ useEffect(() => {
           const base = baselines[t.symbol]
           const pct = price && base ? pctChange(price, base) : 0
           const absUsd = price && base ? (price - base) : 0
-          
-const panelIvRef = useRef(null)
-useEffect(() => {
-  const snapshot = () => {
-    const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
-    setPanel({
-      backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
-      lastActionAt: lastActionAtRef.current || 0,
-      nextAllowedMs: nextAllowed,
-      windowCount: actionsWindowRef.current.length,
-      counters: { ...countersRef.current },
-      failCount: failCountRef.current,
-      avgTickMs: avgTickMsRef.current,
-      ts: Date.now(),
-    })
-  }
-  snapshot()
-  panelIvRef.current = setInterval(snapshot, 1000)
-  const onVis = () => {
-    if (document.hidden) {
-      if (panelIvRef.current) { clearInterval(panelIvRef.current); panelIvRef.current = null }
-    } else if (!panelIvRef.current) {
-      snapshot()
-      panelIvRef.current = setInterval(snapshot, 1000)
-    }
-  }
-  document.addEventListener('visibilitychange', onVis)
-  return () => {
-    if (panelIvRef.current) clearInterval(panelIvRef.current)
-    document.removeEventListener('visibilitychange', onVis)
-  }
-}, [])
-
-  return (
+          return (
             <div key={t.symbol} style={{ background: '#141a24', borderRadius: 12, padding: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.35)' }}>
               <div style={{ fontSize: 14, opacity: 0.8 }}>{t.symbol} <span style={{ opacity: 0.6 }}>({t.pair})</span></div>
               <div style={{ fontSize: 24, marginTop: 4 }}>{price ? fmtUSD(price) : '—'}</div>
@@ -606,14 +537,14 @@ useEffect(() => {
             TOKENS.forEach(t => { if (prices[t.symbol]) copy[t.symbol] = prices[t.symbol]; });
             return copy;
           });
-          log(msgs.join('\n') || 'No baselines updated (no prices yet)')
+          log(msgs.join('\\n') || 'No baselines updated (no prices yet)')
         }}>Reset baselines to current</button>
 
         <button style={{ marginLeft: 8 }} onClick={() => {
           const msgs = [];
           TOKENS.forEach(t => { localStorage.removeItem(storageKey(t.symbol)); msgs.push(`${t.symbol} baseline cleared (${nowPT()} PT)`); })
           setBaselines(() => { const o = {}; TOKENS.forEach(t => o[t.symbol] = null); return o; })
-          log(msgs.join('\n'))
+          log(msgs.join('\\n'))
         }}>Clear baselines</button>
 
         <button
@@ -623,11 +554,12 @@ useEffect(() => {
         >
           Reconnect
         </button>
-<label style={{ marginLeft: 12, fontSize: 12 }}>
-  <input type="checkbox" checked={liveLogs} onChange={e => setLiveLogs(e.target.checked)} style={{ marginRight: 6 }} />
-  Live Logs (show immediately)
-</label>
-<button style={{ marginLeft: 8 }} onClick={() => forceFlush()}>Flush now</button>
+
+        <label style={{ marginLeft: 12, fontSize: 12 }}>
+          <input type="checkbox" checked={liveLogs} onChange={e => setLiveLogs(e.target.checked)} style={{ marginRight: 6 }} />
+          Live Logs (show immediately)
+        </label>
+        <button style={{ marginLeft: 8 }} onClick={() => forceFlush()}>Flush now</button>
       </div>
 
       <div style={{ marginTop: 16 }}>
