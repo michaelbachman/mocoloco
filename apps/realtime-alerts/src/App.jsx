@@ -490,30 +490,6 @@ export default function App() {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <button onClick={() => {
-          const msgs = [];
-          TOKENS.forEach(t => {
-            const p = prices[t.symbol];
-            if (p) {
-              localStorage.setItem(storageKey(t.symbol), String(p));
-              msgs.push(`${t.symbol} baseline reset to ${fmtUSD(p)} (${nowPT()} PT)`);
-            }
-          });
-          setBaselines(b => {
-            const copy = { ...b };
-            TOKENS.forEach(t => { if (prices[t.symbol]) copy[t.symbol] = prices[t.symbol]; });
-            return copy;
-          });
-          log(msgs.join('\n') || 'No baselines updated (no prices yet)')
-        }}>Reset baselines to current</button>
-
-        <button style={{ marginLeft: 8 }} onClick={() => {
-          const msgs = [];
-          TOKENS.forEach(t => { localStorage.removeItem(storageKey(t.symbol)); msgs.push(`${t.symbol} baseline cleared (${nowPT()} PT)`); })
-          setBaselines(() => { const o = {}; TOKENS.forEach(t => o[t.symbol] = null); return o; })
-          log(msgs.join('\n'))
-        }}>Clear baselines</button>
-
         <button style={{ marginLeft: 8 }} onClick={() => { log(`Manual reconnect requested (${nowPT()} PT)`); scheduleReconnect('manual') }} disabled={connectingRef.current}>Reconnect</button>
       </div>
 
