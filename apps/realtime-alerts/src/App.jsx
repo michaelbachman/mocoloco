@@ -92,26 +92,26 @@ export default function App() {
     }
   }, [])
 
+  
   function scheduleReconnect() {
-  if (reconnectRef.current) clearTimeout(reconnectRef.current)
-  // ensure minimum spacing between reconnect attempts
-  const now = Date.now()
-  const sinceLast = now - lastActionAtRef.current
-  const minGap = Math.max(MIN_RECONNECT_MS, RATE_LIMIT_MS)
-  const baseDelay = Math.min(backoffRef.current, BACKOFF_MAX_MS)
-  const jitter = Math.floor(Math.random() * 1000) // up to 1s jitter
-  const delay = Math.max(baseDelay + jitter, minGap - sinceLast)
+    if (reconnectRef.current) clearTimeout(reconnectRef.current)
+    // ensure minimum spacing between reconnect attempts
+    const now = Date.now()
+    const sinceLast = now - lastActionAtRef.current
+    const minGap = Math.max(MIN_RECONNECT_MS, RATE_LIMIT_MS)
+    const baseDelay = Math.min(backoffRef.current, BACKOFF_MAX_MS)
+    const jitter = Math.floor(Math.random() * 1000) // up to 1s jitter
+    const delay = Math.max(baseDelay + jitter, minGap - sinceLast)
 
-  reconnectRef.current = setTimeout(() => {
-    backoffRef.current = Math.min(backoffRef.current * 2, BACKOFF_MAX_MS)
-    connectWS()
-  }, Math.max(delay, 0))
+    reconnectRef.current = setTimeout(() => {
+      backoffRef.current = Math.min(backoffRef.current * 2, BACKOFF_MAX_MS)
+      connectWS()
+    }, Math.max(delay, 0))
 
-  const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
-  setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
-}, delay)
-    setLogs(l => [`Reconnecting in ${(delay/1000).toFixed(0)}s...`, ...l])
+    const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
+    setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
   }
+
 
   function connectWS() {
   if (wsRef.current) { try { wsRef.current.close() } catch {} }
