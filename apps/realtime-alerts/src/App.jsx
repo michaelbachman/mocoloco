@@ -59,6 +59,8 @@ export default function App() {
     return obj
   })
   const [logs, setLogs] = useState([])
+  const [wsStatus, setWsStatus] = useState('disconnected')
+  const [lastTick, setLastTick] = useState(null)
   const wsRef = useRef(null)
 
   useEffect(() => {
@@ -66,6 +68,8 @@ export default function App() {
     wsRef.current = ws
 
     ws.onopen = () => {
+      setWsStatus('Connected');
+      setWsStatus('connected')
       const subscribe = {
         event: 'subscribe',
         pair: TOKENS.map(t => t.subscribePair),
@@ -87,7 +91,14 @@ export default function App() {
           const last = parseFloat(payload?.c?.[0] || payload?.p?.[0])
           if (!isFinite(last)) return
 
+          setLastTick(nowPT())
+
           setPrices(prev => ({ ...prev, [token.symbol]: last }))
+          // Always log the price tick
+          setLogs(l => [
+            `${token.symbol} tick: ${fmtUSD(last)} (${nowPT()} PT)`,
+            ...l
+          ])
 
           // Baseline init
           let base = baselines[token.symbol]
@@ -131,8 +142,8 @@ Time: ${nowPT()} PT`
       }
     }
 
-    ws.onclose = () => setLogs(l => [`WS closed ${nowPT()}`, ...l])
-    ws.onerror = (e) => setLogs(l => [`WS error ${nowPT()}`, ...l])
+    ws.onclose = () => { setWsStatus('closed'); setLogs(l => [`WS closed ${nowPT()}`, ...l])
+    ws.onerror = (e) => { setWsStatus('error'); setLogs(l => [`WS error ${nowPT()}`, ...l])
 
     return () => ws.close()
   }, [])
@@ -140,6 +151,7 @@ Time: ${nowPT()} PT`
   return (
     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
       <h1 style={{ fontSize: '20px', marginBottom: 8 }}>Kraken Real-time Alerts (WS)</h1>
+      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>WS Status: {wsStatus} {lastTick && `(last tick: ${lastTick})`}</div>
       <p style={{ opacity: 0.85, marginBottom: 16 }}>Live ticker via <code>wss://ws.kraken.com</code> • Threshold: ±{DEFAULT_THRESHOLD_PCT}% • Quiet hours: 11pm–7am PT • Rolling baseline per token</p>
 
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
