@@ -8,10 +8,10 @@ const DEFAULT_THRESHOLD_PCT = 1 // ±1%
 const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7am PT
 
 // ---- Rate limiting (Kraken WS guidance ~1 req/sec)
-const RATE_LIMIT_MS = 1200      // min gap between subscribe/connect actions
-const MIN_RECONNECT_MS = 5000   // don't reconnect faster than this
-const BACKOFF_START_MS = 5000   // start backoff at 5s
-const BACKOFF_MAX_MS = 60000    // cap backoff at 60s
+const RATE_LIMIT_MS = 2400      // min gap between subscribe/connect actions
+const MIN_RECONNECT_MS = 10000   // don't reconnect faster than this
+const BACKOFF_START_MS = 10000   // start backoff at 5s
+const BACKOFF_MAX_MS = 120000    // cap backoff at 60s
 
 
 // ---- Helpers ----
@@ -66,6 +66,8 @@ export default function App() {
   const [lastTick, setLastTick] = useState(0)
   const [runtimeError, setRuntimeError] = useState(null)
     const [limitsTick, setLimitsTick] = useState(0)
+    const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+    const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const staleCheckRef = useRef(null)
@@ -92,29 +94,50 @@ export default function App() {
     }
     window.addEventListener('error', onError)
     window.addEventListener('unhandledrejection', onRejection)
+
+      // Network/visibility listeners
+      function onOnline(){ setIsOnline(true); setLogs(l => ['Network: online', ...l]) }
+      function onOffline(){ setIsOnline(false); setLogs(l => ['Network: offline', ...l]) }
+      function onVis(){ const v = !document.hidden; setIsVisible(v); setLogs(l => [`Visibility: ${v ? 'visible' : 'hidden'}`, ...l]) }
+      window.addEventListener('online', onOnline)
+      window.addEventListener('offline', onOffline)
+      document.addEventListener('visibilitychange', onVis)
     return () => {
         clearInterval(iv)
 
       window.removeEventListener('error', onError)
       window.removeEventListener('unhandledrejection', onRejection)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      document.removeEventListener('visibilitychange', onVis)
     }
   }, [])
 
   
   function scheduleReconnect() {
-    if (reconnectRef.current) clearTimeout(reconnectRef.current)
-    // ensure minimum spacing between reconnect attempts
-    const now = Date.now()
-    const sinceLast = now - lastActionAtRef.current
-    const minGap = Math.max(MIN_RECONNECT_MS, RATE_LIMIT_MS)
-    const baseDelay = Math.min(backoffRef.current, BACKOFF_MAX_MS)
-    const jitter = Math.floor(Math.random() * 1000) // up to 1s jitter
-    const delay = Math.max(baseDelay + jitter, minGap - sinceLast)
+  if (reconnectRef.current) clearTimeout(reconnectRef.current)
+  if (!isOnline) {
+    setLogs(l => ['Reconnect deferred: offline', ...l])
+    // try again in a gentle interval while offline
+    reconnectRef.current = setTimeout(scheduleReconnect, Math.max(MIN_RECONNECT_MS, 15000))
+    return
+  }
+  // ensure minimum spacing between reconnect attempts; slow down if tab is hidden
+  const now = Date.now()
+  const sinceLast = now - lastActionAtRef.current
+  const minGap = Math.max(MIN_RECONNECT_MS * (isVisible ? 1 : 2), RATE_LIMIT_MS * 2)
+  const baseDelay = Math.min(backoffRef.current * (isVisible ? 1 : 2), BACKOFF_MAX_MS)
+  const jitter = Math.floor(Math.random() * 3000) // up to 3s jitter
+  const delay = Math.max(baseDelay + jitter, minGap - sinceLast)
 
-    reconnectRef.current = setTimeout(() => {
-      backoffRef.current = Math.min(backoffRef.current * 2, BACKOFF_MAX_MS)
-      connectWS()
-    }, Math.max(delay, 0))
+  reconnectRef.current = setTimeout(() => {
+    backoffRef.current = Math.min(backoffRef.current * 2, BACKOFF_MAX_MS)
+    connectWS()
+  }, Math.max(delay, 0))
+
+  const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
+  setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
+}, Math.max(delay, 0))
 
     const secs = ((Math.max(delay, 0)) / 1000).toFixed(1)
     setLogs(l => [`Reconnecting in ${secs}s...`, ...l])
@@ -122,6 +145,13 @@ export default function App() {
 
 
   function connectWS() {
+  if (!isOnline) {
+    setLogs(l => ['Skipped connect: offline', ...l])
+    scheduleReconnect()
+    return
+  }
+  // If hidden, we still connect, but rely on the larger minGap/backoff above
+
     if (connectingRef.current) { setLogs(l => ['Skipped connect: already connecting', ...l]); return }
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) { setLogs(l => ['Reconnect skipped: socket not CLOSED', ...l]); return }
     connectingRef.current = true
@@ -287,7 +317,7 @@ ws.onclose = () => {
   </div>
 </div>
 
-        <div style={{ fontSize: 12, opacity: 0.85 }}>WS Status: <strong>{wsStatus}</strong></div>
+        <div style={{ fontSize: 12, opacity: 0.85 }}>WS Status: <strong>{wsStatus}</strong> <span style={{ opacity: 0.6 }}>(net: {isOnline ? 'online' : 'offline'}, vis: {isVisible ? 'visible' : 'hidden'})</span></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last tick: <strong>{lastTick ? new Date(lastTick).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
       </div>
 
@@ -339,7 +369,16 @@ ws.onclose = () => {
           setLogs(l => [...msgs, ...l])
         }}>Clear baselines</button>
 
-        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() }}>Reconnect</button>
+        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() } disabled={connectingRef.current}>Reconnect</button>
+      </div>
+
+      
+      <div style={{ marginTop: 16, fontSize: 12, opacity: 0.85 }}>
+        <h2 style={{ fontSize: 14, opacity: 0.85, marginBottom: 6 }}>Limits</h2>
+        <div style={{ background: '#141a24', borderRadius: 8, padding: 10 }}>
+          <div>Backoff delay: {backoffRef.current} ms</div>
+          <div>Next allowed action at: {new Date(lastActionAtRef.current + RATE_LIMIT_MS).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' })} PT</div>
+        </div>
       </div>
 
       <div style={{ marginTop: 16 }}>
