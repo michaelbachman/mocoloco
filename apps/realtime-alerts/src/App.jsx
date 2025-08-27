@@ -361,7 +361,7 @@ ws.onclose = () => {
           setLogs(l => [...msgs, ...l])
         }}>Clear baselines</button>
 
-        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() } disabled={connectingRef.current}>Reconnect</button>
+        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() }} disabled={connectingRef.current}>Reconnect</button>
       </div>
 
       
