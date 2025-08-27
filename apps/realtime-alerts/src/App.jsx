@@ -152,60 +152,66 @@ export default function App() {
     }
 
     ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data)
-        if (Array.isArray(data) && data.length >= 2) {
-          const payload = data[1]
-          const channelInfo = data[data.length - 1]
-          const pair = channelInfo?.pair || ''
-          const token = TOKENS.find(t => pair.includes(t.pair.replace('/', '')) || pair.includes(t.pair) || pair.includes(t.symbol))
-          if (!token) return
-          const last = parseFloat(payload?.c?.[0] || payload?.p?.[0])
-          if (!isFinite(last)) return
+  try {
+    const data = JSON.parse(ev.data)
+    if (Array.isArray(data) && data.length >= 2) {
+      const payload = data[1]
+      const tail = data[data.length - 1]
+      const pairStr = (typeof tail === 'string') ? tail : (tail && tail.pair) || ''
+      const normMsg = pairStr.replace(/[^A-Za-z]/g, '').toUpperCase()
 
-          setPrices(prev => ({ ...prev, [token.symbol]: last }))
+      const token = TOKENS.find(t => {
+        const normCfg = t.pair.replace(/[^A-Za-z]/g, '').toUpperCase()
+        const normSym = t.symbol.replace(/[^A-Za-z]/g, '').toUpperCase()
+        return normMsg.includes(normCfg) || normMsg.includes(normSym)
+      })
+      if (!token) { setLogs(l => [`Unmapped pair in message: ${pairStr || '(empty)'} (${nowPT()} PT)`, ...l]); return }
 
-          // Always log the price tick
-          setLogs(l => [`${token.symbol} tick: ${fmtUSD(last)} (${nowPT()} PT)`, ...l])
+      const last = parseFloat((payload && payload.c && payload.c[0]) || (payload && payload.a && payload.a[0]) || (payload && payload.p && payload.p[0]))
+      if (!isFinite(last)) return
 
-          // update last tick timestamp
-          setLastTick(nowPT())
+      setPrices(prev => ({ ...prev, [token.symbol]: last }))
 
-          // Baseline init
-          let base = baselines[token.symbol]
-          if (!base) {
-            base = last
-            localStorage.setItem(storageKey(token.symbol), String(base))
-            setBaselines(b => ({ ...b, [token.symbol]: base }))
-            setLogs(l => [`${token.symbol} baseline initialized at ${fmtUSD(base)} (${nowPT()} PT)`, ...l])
-            return
-          }
+      // Always log the price tick
+      setLogs(l => [`${token.symbol} tick: ${fmtUSD(last)} (${nowPT()} PT)`, ...l])
 
-          const pct = pctChange(last, base)
-          const absUsd = last - base
-          const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
+      // update last tick timestamp
+      setLastTick(nowPT())
 
-          if (crossed) {
-            if (!inQuietHours()) {
-              const direction = pct > 0 ? 'up' : 'down'
-              const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})\nPrice: ${fmtUSD(last)}\nPrior baseline: ${fmtUSD(base)}\nTime: ${nowPT()} PT`
-              sendTelegram(msg)
-              setLogs(l => [msg, ...l])
-            } else {
-              setLogs(l => [`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`, ...l])
-            }
-            localStorage.setItem(storageKey(token.symbol), String(last))
-            setBaselines(b => ({ ...b, [token.symbol]: last }))
-          }
-        } else if (data?.event) {
-          setLogs(l => [`${data.event}: ${JSON.stringify(data)}`, ...l])
-        }
-      } catch (e) {
-        console.warn('WS parse error', e)
+      // Baseline init
+      let base = baselines[token.symbol]
+      if (!base) {
+        base = last
+        localStorage.setItem(storageKey(token.symbol), String(base))
+        setBaselines(b => ({ ...b, [token.symbol]: base }))
+        setLogs(l => [`${token.symbol} baseline initialized at ${fmtUSD(base)} (${nowPT()} PT)`, ...l])
+        return
       }
-    }
 
-    ws.onclose = () => {
+      const pct = ((last - base) / base) * 100
+      const absUsd = last - base
+      const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
+
+      if (crossed) {
+        if (!inQuietHours()) {
+          const direction = pct > 0 ? 'up' : 'down'
+          const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})\nPrice: ${fmtUSD(last)}\nPrior baseline: ${fmtUSD(base)}\nTime: ${nowPT()} PT`
+          sendTelegram(msg)
+          setLogs(l => [msg, ...l])
+        } else {
+          setLogs(l => [`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`, ...l])
+        }
+        localStorage.setItem(storageKey(token.symbol), String(last))
+        setBaselines(b => ({ ...b, [token.symbol]: last }))
+      }
+    } else if (data && data.event) {
+      setLogs(l => [`${data.event}: ${JSON.stringify(data)}`, ...l])
+    }
+  } catch (e) {
+    console.warn('WS parse error', e)
+  }
+}
+ws.onclose = () => {
       setWsStatus('Closed')
       setLogs(l => [`WS closed ${nowPT()}`, ...l])
       scheduleReconnect()
