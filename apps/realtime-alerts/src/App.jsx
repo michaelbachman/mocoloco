@@ -149,7 +149,7 @@ export default function App() {
         setLogs(l => [...logsBufferRef.current, ...l].slice(0, 1000))
         logsBufferRef.current = []
         flushTimerRef.current = null
-      }, 750) // flush ~1/s
+      }, 10000) // flush ~10s
     }
   }
 
