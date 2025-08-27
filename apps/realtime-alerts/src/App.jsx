@@ -21,15 +21,22 @@ function inQuietHours(date = new Date()) {
   } else {
     return (h >= QUIET_HOURS.start && h < QUIET_HOURS.end);
   }
+}));
+  const h = pt.getHours();
+  if (QUIET_HOURS.start > QUIET_HOURS.end) {
+    return (h >= QUIET_HOURS.start) || (h < QUIET_HOURS.end);
+  } else {
+    return (h >= QUIET_HOURS.start && h < QUIET_HOURS.end);
+  }
 }))
   const h = pt.getHours()
   // Quiet interval spans overnight
   if (QUIET_HOURS.start > QUIET_HOURS.end) {
     return (
-    <ErrorBoundary onError={(err) => setLogs(l => [`Runtime error: ${err.message}`, ...l])}>h >= QUIET_HOURS.start) || (h < QUIET_HOURS.end)
+     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>h >= QUIET_HOURS.start) || (h < QUIET_HOURS.end)
   } else {
     return (
-    <ErrorBoundary onError={(err) => setLogs(l => [`Runtime error: ${err.message}`, ...l])}>h >= QUIET_HOURS.start && h < QUIET_HOURS.end)
+     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>h >= QUIET_HOURS.start && h < QUIET_HOURS.end)
   }
 }
 function fmtUSD(n) {
@@ -58,7 +65,7 @@ async function sendTelegram(message) {
 
 function ErrorBoundary({ children, onError }) {
   return (
-    <ErrorBoundary onError={(err) => setLogs(l => [`Runtime error: ${err.message}`, ...l])}>
+     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>
     <React.ErrorBoundary
       fallbackRender={({ error }) => {
         if (onError) onError(error)
@@ -117,14 +124,14 @@ export default function App() {
       }
     }, 15000)
     return (
-    <ErrorBoundary onError={(err) => setLogs(l => [`Runtime error: ${err.message}`, ...l])}>) => {
+     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>) => {
       if (staleCheckRef.current) clearInterval(staleCheckRef.current)
       if (wsRef.current) try { wsRef.current.close() } catch {}
     }
   }, [])
 
   return (
-    <ErrorBoundary onError={(err) => setLogs(l => [`Runtime error: ${err.message}`, ...l])}>
+     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>
     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
       <h1 style={{ fontSize: '20px', marginBottom: 8 }}>Kraken Real-time Alerts (WS)</h1>
 
@@ -144,7 +151,7 @@ export default function App() {
           const pct = price && base ? pctChange(price, base) : 0
           const absUsd = price && base ? (price - base) : 0
           return (
-    <ErrorBoundary onError={(err) => setLogs(l => [`Runtime error: ${err.message}`, ...l])}>
+     setLogs(l => [`Runtime error: ${err.message}`, ...l])}>
             <div key={t.symbol} style={{ background: '#141a24', borderRadius: 12, padding: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.35)' }}>
               <div style={{ fontSize: 14, opacity: 0.8 }}>{t.symbol} <span style={{ opacity: 0.6 }}>({t.pair})</span></div>
               <div style={{ fontSize: 24, marginTop: 4 }}>{price ? fmtUSD(price) : '—'}</div>
@@ -191,6 +198,6 @@ export default function App() {
         </div>
       </div>
     </div>
-    </ErrorBoundary>
+    
   )
 }
