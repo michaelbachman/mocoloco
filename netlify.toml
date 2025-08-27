@@ -1,0 +1,21 @@
+#
+# Netlify config for Kraken real-time alerts
+#
+[build]
+  base = "apps/realtime-alerts"
+  publish = "apps/realtime-alerts/dist"
+  command = "npm install --no-audit --no-fund && npm run build"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = []
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# Redirect function endpoint
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
