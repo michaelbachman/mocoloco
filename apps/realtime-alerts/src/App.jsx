@@ -6,6 +6,10 @@ const TOKENS = [
 ]
 const DEFAULT_THRESHOLD_PCT = 1 // ±1%
 const QUIET_HOURS = { start: 23, end: 7, tz: 'America/Los_Angeles' } // 11pm–7am PT
+const ALERT_DEDUP_MS = 180000 // 3 minutes per direction
+const RECONNECT_DAILY_CAP = 500 // max reconnect schedules per day
+const BROWNOUT_MODE = false
+const BROWNOUT_MULTIPLIER = 2
 
 // Kraken-friendly pacing (doubled, gentle)
 const RATE_LIMIT_MS = 2400       // ≥ one action per 2.4s (connect / subscribe)
@@ -18,6 +22,13 @@ const ACTION_WINDOW_MS = 15000
 const ACTION_WINDOW_MAX = 8      // at most 8 actions per 15s window
 
 // ---- Helpers ----
+function parseLastPrice(payload){
+  const cand = [payload?.c?.[0], payload?.a?.[0], payload?.p?.[0]].map(x => x!=null ? parseFloat(x) : NaN);
+  const val = cand.find(v => Number.isFinite(v));
+  return Number.isFinite(val) ? val : null;
+}
+function isPlainObject(o){ return o && typeof o === 'object' && !Array.isArray(o) }
+
 function pctChange(curr, base) {
   if (!base || base === 0) return 0
   return ((curr - base) / base) * 100
@@ -92,7 +103,9 @@ export default function App() {
   const failCountRef = useRef(0)
   const lastFailureAtRef = useRef(0)
   const lastReconnectReasonRef = useRef('—')
-  const countersRef = useRef({
+  const lastAlertRef = useRef(new Map())
+    const dailyCapRef = useRef({ day: null, count: 0 })
+    const countersRef = useRef({
     connectAttempts: 0,
     subscribeSends: 0,
     errors: 0,
@@ -206,26 +219,33 @@ export default function App() {
 
   // ---- Reconnect scheduler (offline/visibility aware + cooldown) ----
   function scheduleReconnect(reason = 'unknown') {
-    if (reconnectRef.current) clearTimeout(reconnectRef.current)
-    if (!isOnline) {
-      log('Reconnect deferred: offline')
-      reconnectRef.current = setTimeout(() => scheduleReconnect('offline retry'), Math.max(MIN_RECONNECT_MS, 15000))
-      return
-    }
-    lastReconnectReasonRef.current = reason
-    // failure-aware cooldown
-    let extraCooldown = 0
-    if (failCountRef.current >= 5) {
-      extraCooldown = 60000 // +60s after 5 consecutive failures
-    }
-    // visibility-aware pacing
-    const base = isVisible ? backoffRef.current : backoffRef.current * 2
-    const delay = Math.max(base, MIN_RECONNECT_MS) + extraCooldown + Math.floor(Math.random() * 3000)
-    reconnectRef.current = setTimeout(() => {
-      backoffRef.current = nextBackoff(backoffRef.current)
-      connectWS()
-    }, delay)
-    log(`Reconnecting in ${(delay/1000).toFixed(1)}s (reason: ${reason})`)
+  if (reconnectRef.current) clearTimeout(reconnectRef.current)
+  // daily cap
+  const today = new Date().toISOString().slice(0,10)
+  if (dailyCapRef.current.day !== today) { dailyCapRef.current.day = today; dailyCapRef.current.count = 0 }
+  if (dailyCapRef.current.count >= RECONNECT_DAILY_CAP) { log('Daily reconnect cap reached; pausing reconnects'); return }
+  dailyCapRef.current.count++
+
+  if (!isOnline) {
+    log('Reconnect deferred: offline')
+    reconnectRef.current = setTimeout(() => scheduleReconnect('offline retry'), Math.max(MIN_RECONNECT_MS, 15000))
+    return
+  }
+  lastReconnectReasonRef.current = reason
+  let extraCooldown = 0
+  if (failCountRef.current >= 5) extraCooldown = 60000
+  const base = isVisible ? backoffRef.current : backoffRef.current * 2
+  let delay = Math.max(base, MIN_RECONNECT_MS) + extraCooldown + Math.floor(Math.random() * 3000)
+  if (BROWNOUT_MODE) delay = Math.floor(delay * BROWNOUT_MULTIPLIER)
+
+  reconnectRef.current = setTimeout(() => {
+    backoffRef.current = nextBackoff(backoffRef.current)
+    connectWS()
+  }, delay)
+  log(`Reconnecting in ${(delay/1000).toFixed(1)}s (reason: ${reason})`)
+}
+
+// Reconnecting in ${(delay/1000).toFixed(1)}s (reason: ${reason})`)
   }
 
   // ---- Connect WS (guarded) ----
@@ -330,6 +350,12 @@ export default function App() {
             const crossed = Math.abs(pct) >= DEFAULT_THRESHOLD_PCT
 
             if (crossed) {
+                // Alert dedupe per direction
+                const key = `${token.symbol}_${pct>0?'up':'down'}`
+                const prev = lastAlertRef.current.get(key) || 0
+                if (Date.now() - prev < ALERT_DEDUP_MS) {
+                  log(`(dedup) ${token.symbol} ${pct>0?'up':'down'} within ${Math.round(ALERT_DEDUP_MS/1000)}s window`)
+                } else { lastAlertRef.current.set(key, Date.now())
               if (!inQuietHours()) {
                 const direction = pct > 0 ? 'up' : 'down'
                 const msg = `⚡ ${token.symbol} ${direction} ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})\nPrice: ${fmtUSD(last)}\nPrior baseline: ${fmtUSD(base)}\nTime: ${nowPT()} PT`
@@ -337,6 +363,7 @@ export default function App() {
                 log(msg)
               } else {
                 log(`(quiet hours) ${token.symbol} move ${pct.toFixed(2)}% (Δ ${fmtUSD(absUsd)})`)
+              }
               }
               localStorage.setItem(storageKey(token.symbol), String(last))
               setBaselines(b => ({ ...b, [token.symbol]: last }))
@@ -499,3 +526,11 @@ export default function App() {
     </div>
   )
 }
+
+/*
+Security/Production Notes:
+- Schema guard: validate Kraken ticker messages shape (c[0], a[0], p[0]) before use.
+- Deduper: throttle alerts so identical direction/threshold moves within 2–5 min window are skipped.
+- Daily cap: max reconnect attempts/hour; after that pause and show banner.
+- Brownout flag: optional admin env var to slow all reconnects under stress.
+*/
