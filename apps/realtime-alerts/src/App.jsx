@@ -490,12 +490,12 @@ export default function App() {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <button style={{ marginLeft: 8 }} onClick={() => { log(`Manual reconnect requested (${nowPT()} PT)`); scheduleReconnect('manual') }} disabled={connectingRef.current}>Reconnect</button>
+        <button style={{ marginLeft: 8 }} onClick={() => { setLogs(l => ['Manual reconnect requested', ...l]); scheduleReconnect('manual') }} disabled={connectingRef.current}>Reconnect</button>
       </div>
 
       <div style={{ marginTop: 16 }}>
         <h2 style={{ fontSize: 14, opacity: 0.85, marginBottom: 6 }}>Logs</h2>
-        <div style={{ background: '#0f1420', borderRadius: 8, padding: 12, maxHeight: 260, overflow: 'auto', fontSize: 12, lineHeight: 1.4 }}>
+          <div style={{ background: '#0f1420', borderRadius: 8, padding: 12, maxHeight: 260, overflow: 'auto', fontSize: 12, lineHeight: 1.4 }}>
           {logs.map((ln, i) => <div key={i} style={{ opacity: 0.9, whiteSpace: 'pre-wrap' }}>{ln}</div>)}
         </div>
       </div>
