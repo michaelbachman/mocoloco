@@ -142,8 +142,8 @@ Time: ${nowPT()} PT`
       }
     }
 
-    ws.onclose = () => { setWsStatus('closed'); setLogs(l => [`WS closed ${nowPT()}`, ...l])
-    ws.onerror = (e) => { setWsStatus('error'); setLogs(l => [`WS error ${nowPT()}`, ...l])
+    ws.onclose = () => { setWsStatus('Closed'); setLogs(l => [`WS closed ${nowPT()}`, ...l]); };
+    ws.onerror = (e) => { setWsStatus('Error'); setLogs(l => [`WS error ${nowPT()}`, ...l]); };
 
     return () => ws.close()
   }, [])
