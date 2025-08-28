@@ -149,6 +149,24 @@ export default function App() {
     ticks: 0,
   })
   const lastTickRef = useRef(null)
+
+
+  // ---- UI ----
+    const panel = {
+    backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
+    lastActionAt: lastActionAtRef.current || 0,
+    nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
+    windowCount: (() => { const now = Date.now(); actionsWindowRef.current = actionsWindowRef.current.filter(t => (now - t) <= ACTION_WINDOW_MS); return actionsWindowRef.current.length })(),
+    ...(() => { const now = Date.now(); const prune = (win) => { ticksWindowRef.current = ticksWindowRef.current.filter(t => (now - t) <= win); return ticksWindowRef.current.length }; const n60 = prune(60000); const n300 = prune(300000); return { ticks60: n60, ticks300: n300, rate60: (n60/60), rate300: (n300/300) } })(),
+    counters: { ...countersRef.current },
+    failCount: failCountRef.current,
+    avgTickMs: avgTickMsRef.current,
+    ts: Date.now(),
+    rt: renderTick,
+    sinceLastActionMs: lastActionAtRef.current ? Math.max(0, Date.now() - lastActionAtRef.current) : null,
+  }
+
+
 const avgTickMsRef = useRef(null) // moving avg of tick intervals
   
   // Persist certain refs when they change (via a lightweight 1s ticker)
@@ -491,21 +509,7 @@ useEffect(() => {
 }, [renderTick, panel.rate60])
 // Initial connect
   useEffect(() => { connectWS() }, [])
-
-  // ---- UI ----
-    const panel = {
-    backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
-    lastActionAt: lastActionAtRef.current || 0,
-    nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
-    windowCount: (() => { const now = Date.now(); actionsWindowRef.current = actionsWindowRef.current.filter(t => (now - t) <= ACTION_WINDOW_MS); return actionsWindowRef.current.length })(),
-    ...(() => { const now = Date.now(); const prune = (win) => { ticksWindowRef.current = ticksWindowRef.current.filter(t => (now - t) <= win); return ticksWindowRef.current.length }; const n60 = prune(60000); const n300 = prune(300000); return { ticks60: n60, ticks300: n300, rate60: (n60/60), rate300: (n300/300) } })(),
-    counters: { ...countersRef.current },
-    failCount: failCountRef.current,
-    avgTickMs: avgTickMsRef.current,
-    ts: Date.now(),
-    rt: renderTick,
-    sinceLastActionMs: lastActionAtRef.current ? Math.max(0, Date.now() - lastActionAtRef.current) : null,
-  }
+// ---- UI ----
   return (
     <ErrorBoundary>
       <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
