@@ -1,39 +1,38 @@
 <!doctype html>
 <html lang="en">
   <head>
-  <link rel="preconnect" href="https://ws.kraken.com" crossorigin>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Realtime Alerts — BTC</title>
+    <title>Kraken Realtime Alerts</title>
+    <link rel="preconnect" href="https://api.kraken.com" crossorigin>
+    <link rel="preconnect" href="https://ws.kraken.com" crossorigin>
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 16px; }
-      h1 { margin: 0 0 8px 0; }
-      .row { display: flex; gap: 16px; flex-wrap: wrap; }
-      .col { flex: 1 1 420px; min-width: 320px; border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-      .logs { height: 200px; overflow: auto; border: 1px solid #eee; padding: 6px; border-radius: 6px; background: #fafafa; }
-      button { padding: 6px 10px; }
-      .kv { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
-      .k { color:#555; }
-      .spark { width: 100%; height: 44px; border: 1px solid #eee; border-radius: 6px; }
+      :root { color-scheme: light dark; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 16px 20px; }
+      .hero { min-height: 120px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .card { border: 1px solid #e5e7eb22; border-radius: 14px; padding: 12px 14px; box-shadow: 0 1px 8px #0000000a; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .label { opacity: .7; font-size: 12px; }
+      .val { font-size: 28px; font-weight: 600; }
+      .small { font-size: 12px; opacity: .8; }
+      .row { display: flex; gap: 10px; align-items: baseline; }
+      .logs { max-height: 240px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      .badge { padding: 2px 8px; border-radius: 999px; border: 1px solid #9993; font-size: 12px; }
+      .ok { background: #10b98122; border-color: #10b98155; }
+      .warn { background: #f59e0b22; border-color: #f59e0b55; }
+      svg { display: block; }
     </style>
-    <style>
-  /* Performance-only: avoid below-the-fold costs without visual change */
-  .col { content-visibility: auto; contain-intrinsic-size: 1px 600px; }
-  </style>
-  <style>
-
-  /* LCP control: prevent logs from becoming the LCP element */
-  .logs { max-height: 240px; overflow: auto; }
-  .logs-col { margin-top: 24px; }
-  /* Optional: if you wrap the top summary in .hero, this keeps it as likely LCP */
-  .hero { min-height: 320px; }
-
-  </style>
-</head>
+  </head>
   <body>
-    <h1>Realtime Alerts</h1>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(()=>{})
+        })
+      }
+    </script>
   </body>
 </html>

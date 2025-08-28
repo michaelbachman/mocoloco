@@ -1,9 +1,7 @@
 [build]
-  command = "cd apps/realtime-alerts && npm install --no-audit --no-fund && npm run build"
+  base = "apps/realtime-alerts"
   publish = "apps/realtime-alerts/dist"
-
-[functions]
-  node_bundler = "esbuild"
+  command = "npm install --no-audit --no-fund && npm run build"
 
 [[redirects]]
   from = "/api/*"
@@ -13,7 +11,7 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "no-referrer"
-    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' wss://ws.kraken.com https:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Referrer-Policy = "no-referrer"
+    X-Content-Type-Options = "nosniff"
