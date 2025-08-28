@@ -1,5 +1,6 @@
 
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { LineChart, Line, ResponsiveContainer } from 'recharts'
 
 // ---- Global clock (module-level) ----
 let __clockCount = 0
@@ -100,6 +101,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
   const [limitsTick, setLimitsTick] = useState(0) // 1s ticker for panel
+  const [tickRateHistory, setTickRateHistory] = useState([]) // last 50 rate60 samples
   const renderTick = useSyncExternalStore(clockSubscribe, clockGetSnapshot)
 
   // Refs
@@ -342,6 +344,8 @@ const avgTickMsRef = useRef(null) // moving avg of tick intervals
                 : Math.round(prevAvg * 0.8 + diff * 0.2)
             }
             lastTickRef.current = nowMs
+            // record in rolling window
+            ticksWindowRef.current.push(nowMs)
             setLastTick(nowMs)
             backoffRef.current = BACKOFF_START_MS
             failCountRef.current = 0
@@ -454,7 +458,15 @@ const avgTickMsRef = useRef(null) // moving avg of tick intervals
     return () => clearInterval(iv)
   }, [])
 
-  // Initial connect
+  // ---- Tick rate sparkline sampler (each render tick) ----
+useEffect(() => {
+  const rate = Number(panel.rate60 || 0)
+  setTickRateHistory(hist => {
+    const next = hist.concat({ t: Date.now(), r: rate })
+    return next.slice(-50)
+  })
+}, [renderTick, panel.rate60])
+// Initial connect
   useEffect(() => { connectWS() }, [])
 
   // ---- UI ----
@@ -463,6 +475,7 @@ const avgTickMsRef = useRef(null) // moving avg of tick intervals
     lastActionAt: lastActionAtRef.current || 0,
     nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
     windowCount: (() => { const now = Date.now(); actionsWindowRef.current = actionsWindowRef.current.filter(t => (now - t) <= ACTION_WINDOW_MS); return actionsWindowRef.current.length })(),
+    ...(() => { const now = Date.now(); const prune = (win) => { ticksWindowRef.current = ticksWindowRef.current.filter(t => (now - t) <= win); return ticksWindowRef.current.length }; const n60 = prune(60000); const n300 = prune(300000); return { ticks60: n60, ticks300: n300, rate60: (n60/60), rate300: (n300/300) } })(),
     counters: { ...countersRef.current },
     failCount: failCountRef.current,
     avgTickMs: avgTickMsRef.current,
@@ -509,6 +522,8 @@ const avgTickMsRef = useRef(null) // moving avg of tick intervals
             <div>Watchdog resets: <strong>{panel.counters.watchdogResets}</strong></div>
             <div>Ticks received: <strong>{panel.counters.ticks}</strong></div>
             <div>Rate-delayed actions: <strong>{panel.counters.rateDelayed}</strong> • Queued actions: <strong>{panel.counters.queuedActions}</strong></div>
+            <div>Ticks received: <strong>{panel.counters.ticks}</strong></div>
+            <div>Ticks (60s / 300s): <strong>{panel.ticks60}</strong> / <strong>{panel.ticks300}</strong> • Rate: <strong>{panel.rate60?.toFixed(2)}</strong>/s • <strong>{panel.rate300?.toFixed(2)}</strong>/s</div>
             <div>Consecutive failures: <strong>{panel.failCount}</strong></div>
             <div>Avg tick: <strong>{panel.avgTickMs ? (panel.avgTickMs/1000).toFixed(1) + 's' : '—'}</strong></div>
           </div>
