@@ -6,12 +6,11 @@ export default defineConfig({
   plugins: [react()],
   build: {
     manifest: true,
-    sourcemap: false,
     target: 'es2019',
+    sourcemap: false,
     rollupOptions: {
-      output: {
-        manualChunks: undefined
-      }
+      input: 'src/main.jsx',
+      output: { manualChunks: undefined }
     }
   }
 })

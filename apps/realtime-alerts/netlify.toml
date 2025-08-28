@@ -1,0 +1,45 @@
+[build]
+  command = "npm install --no-audit --no-fund && npm run build"
+  publish = "dist"
+
+# Keep assets & manifest out of SPA rewrites
+[[redirects]]
+  from = "/assets/*"
+  to = "/assets/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/manifest.json"
+  to = "/manifest.json"
+  status = 200
+
+# (Optional) SPA fallback if your app is single-page
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Cache policy
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+  Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+  Cache-Control = "public, max-age=60, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+  Cache-Control = "public, max-age=0, must-revalidate"
+
+# Security
+[[headers]]
+  for = "/*"
+  [headers.values]
+  Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' wss://ws.kraken.com https:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+  Referrer-Policy = "no-referrer"
+  Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+  X-Content-Type-Options = "nosniff"

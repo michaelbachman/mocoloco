@@ -2,6 +2,10 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 
-const container = document.getElementById('root')
-const root = createRoot(container)
-root.render(<App />)
+const el = document.getElementById('root')
+if (!el) {
+  console.error('[APP] #root not found')
+} else {
+  createRoot(el).render(<App />)
+  console.log('[APP] React mounted')
+}
