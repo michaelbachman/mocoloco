@@ -417,17 +417,8 @@ export default function App() {
     const snapshot = () => {
       try {
         const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
-        setPanel({
-          backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
-          lastActionAt: lastActionAtRef.current || 0,
-          nextAllowedMs: nextAllowed,
-          windowCount: actionsWindowRef.current.length,
-          counters: { ...countersRef.current },
-          failCount: failCountRef.current,
-          avgTickMs: avgTickMsRef.current,
-          ts: Date.now(),
-        })
-      } catch (e) {
+// panel snapshot removed (render-driven panel)
+} catch (e) {
         console.warn('Panel snapshot error', e)
       }
     }
