@@ -417,37 +417,43 @@ export default function App() {
     return () => clearInterval(iv)
   }, [lastTick])
 
-  // ---- Panel heartbeat (1s) ----
+  // ---- Panel heartbeat (1s, RAF-driven) ----
   useEffect(() => {
-    const snapshot = () => {
-      const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
-      setPanel({
-        backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
-        lastActionAt: lastActionAtRef.current || 0,
-        nextAllowedMs: nextAllowed,
-        windowCount: actionsWindowRef.current.length,
-        counters: { ...countersRef.current },
-        failCount: failCountRef.current,
-        avgTickMs: avgTickMsRef.current,
-        ts: Date.now(),
-      })
-    }
-    snapshot()
-    panelIvRef.current = setInterval(snapshot, 1000)
+    let rafId = null
+    let last = 0
+    const SNAP_MS = 1000
 
-    const onVis = () => {
-      if (document.hidden) {
-        if (panelIvRef.current) { clearInterval(panelIvRef.current); panelIvRef.current = null }
-      } else if (!panelIvRef.current) {
-        snapshot()
-        panelIvRef.current = setInterval(snapshot, 1000)
+    const snapshot = () => {
+      try {
+        const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
+        setPanel({
+          backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
+          lastActionAt: lastActionAtRef.current || 0,
+          nextAllowedMs: nextAllowed,
+          windowCount: actionsWindowRef.current.length,
+          counters: { ...countersRef.current },
+          failCount: failCountRef.current,
+          avgTickMs: avgTickMsRef.current,
+          ts: Date.now(),
+        })
+      } catch (e) {
+        console.warn('Panel snapshot error', e)
       }
     }
-    document.addEventListener('visibilitychange', onVis)
+
+    const loop = (ts) => {
+      if (!last || (ts - last) >= SNAP_MS) {
+        snapshot()
+        last = ts
+      }
+      rafId = requestAnimationFrame(loop)
+    }
+
+    snapshot() // immediate paint
+    rafId = requestAnimationFrame(loop)
 
     return () => {
-      if (panelIvRef.current) clearInterval(panelIvRef.current)
-      document.removeEventListener('visibilitychange', onVis)
+      if (rafId) cancelAnimationFrame(rafId)
     }
   }, [])
 
