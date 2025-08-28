@@ -1,15 +1,44 @@
 :root { color-scheme: light dark; }
-body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+  background: var(--bg, #0b0b0d);
+  color: var(--fg, #eaeaf0);
+}
 .wrap { max-width: 920px; margin: 0 auto; padding: 16px 20px; }
-.hero { min-height: 120px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.card { border: 1px solid #e5e7eb22; border-radius: 14px; padding: 12px 14px; box-shadow: 0 1px 8px #0000000a; }
+h1 { font-size: 18px; margin: 0 0 12px; font-weight: 600; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.card {
+  border: 1px solid #e5e7eb22;
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 8px #00000012;
+  background: #111114;
+}
 .label { opacity: .7; font-size: 12px; }
-.val { font-size: 28px; font-weight: 600; }
+.val { font-size: 22px; font-weight: 600; }
 .small { font-size: 12px; opacity: .8; }
-.row { display: flex; gap: 10px; align-items: baseline; }
-.logs { max-height: 240px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.logs {
+  max-height: 300px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
 .badge { padding: 2px 8px; border-radius: 999px; border: 1px solid #9993; font-size: 12px; }
 .ok { background: #10b98122; border-color: #10b98155; }
 .warn { background: #f59e0b22; border-color: #f59e0b55; }
-svg { display: block; }
+.btn {
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid #3b3b40;
+  background: #1a1a20;
+  padding: 6px 10px;
+  color: inherit;
+}
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.footer { opacity: .7; font-size: 12px; margin-top: 8px; }

@@ -1,225 +1,237 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 
-// --- Configs (kept small for LCP) ---
-const PAIR_REST = 'XBTUSD'        // Kraken REST pair for BTC/USD
-const PAIR_WS   = 'XBT/USD'       // Kraken WS pair naming
-const MAX_LOG_LINES = 150
-const FLUSH_INTERVAL_MS = 800
-const FLUSH_MAX = 30
-const STALE_MS = 30_000           // If no ticks in 30s, reconnect
-
+// ---------- Utils ----------
 function nowPT() {
   try {
     return new Intl.DateTimeFormat('en-US', {
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      timeZone: 'America/Los_Angeles', hour12: false
+      hour12: false,
+      timeZone: 'America/Los_Angeles',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
     }).format(new Date())
   } catch {
-    return new Date().toLocaleTimeString()
+    const d = new Date()
+    const hh = String(d.getHours()).padStart(2,'0')
+    const mm = String(d.getMinutes()).padStart(2,'0')
+    const ss = String(d.getSeconds()).padStart(2,'0')
+    return `${hh}:${mm}:${ss}`
   }
 }
 
-// Lightweight REST fetch for a spot price (for UI sanity on first load)
-async function fetchSpot() {
-  const url = `https://api.kraken.com/0/public/Ticker?pair=${PAIR_REST}`
-  const res = await fetch(url, { cache: 'no-store' })
-  const json = await res.json()
-  const key = Object.keys(json?.result || {})[0]
-  const last = json?.result?.[key]?.c?.[0]
-  const px = last ? Number(last) : NaN
-  return isFinite(px) ? px : NaN
-}
-
-export default function App() {
-  const [status, setStatus] = useState('Booting…')
+// ---------- Component ----------
+export default function App () {
+  // UI state
   const [price, setPrice] = useState(null)
-  const [connected, setConnected] = useState(false)
-  const [ticks, setTicks] = useState(0)
-  const [lastTickAt, setLastTickAt] = useState(null)
+  const [status, setStatus] = useState('disconnected')
   const [logs, setLogs] = useState([])
+  const [ticks, setTicks] = useState(0)
+  const [lastTickAgo, setLastTickAgo] = useState('--')
+  const [backoff, setBackoff] = useState(0)
 
+  // Refs
   const wsRef = useRef(null)
-  const backoffRef = useRef(2_000)
-  const bufRef = useRef([])
-  const staleCheckRef = useRef(null)
-  const lastFlushAtRef = useRef(0)
+  const reconnectTimerRef = useRef(null)
+  const staleTimerRef = useRef(null)
 
-  const log = (s) => {
-    bufRef.current.push(`[${nowPT()}] ${s}`)
+  const connectingRef = useRef(false)
+  const subscribedRef = useRef(false)
+  const lastTickAtRef = useRef(0)
+  const backoffMsRef = useRef(2000)
+
+  // Consts
+  const MAX_BACKOFF_MS = 60000
+  const STALE_MS = 30000
+  const KRAKEN_WS = 'wss://ws.kraken.com'
+  const PAIR = 'XBT/USD' // BTC/USD spot
+
+  const log = useCallback((s) => {
+    // O(1) prepend via slice
+    setLogs(prev => [`[${nowPT()}] ${s}`, ...prev].slice(0, 500))
+  }, [])
+
+  function clearTimers() {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    if (staleTimerRef.current) {
+      clearTimeout(staleTimerRef.current)
+      staleTimerRef.current = null
+    }
   }
 
-  // Flush logs in small chunks to avoid large long tasks
+  function scheduleStaleCheck() {
+    if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
+    staleTimerRef.current = setTimeout(() => {
+      const idle = Date.now() - (lastTickAtRef.current || 0)
+      if (idle >= STALE_MS && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        log(`No ticks for ${Math.round(idle/1000)}s — closing to recover`)
+        try { wsRef.current.close(4000, 'stale') } catch {}
+      }
+    }, STALE_MS)
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimerRef.current) return
+    const delay = backoffMsRef.current
+    setBackoff(delay)
+    log(`Reconnecting in ${Math.round(delay/1000)}s…`)
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null
+      connectWS()
+      backoffMsRef.current = Math.min(backoffMsRef.current * 2, MAX_BACKOFF_MS)
+      setBackoff(backoffMsRef.current)
+    }, delay)
+  }
+
+  function connectWS() {
+    if (connectingRef.current) return
+    connectingRef.current = true
+
+    clearTimers()
+    subscribedRef.current = false
+
+    setStatus('connecting')
+    log(`Connecting WS for ${PAIR}…`)
+    const ws = new WebSocket(KRAKEN_WS)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      try {
+        const msg = { event: 'subscribe', pair: [PAIR], subscription: { name: 'ticker' } }
+        ws.send(JSON.stringify(msg))
+        log(`WS → subscribe ${PAIR}`)
+      } catch (e) {
+        log(`Send error: ${e?.message || e}`)
+      }
+      backoffMsRef.current = 2000
+      setBackoff(0)
+      setStatus('open')
+      scheduleStaleCheck()
+      connectingRef.current = false
+    }
+
+    ws.onmessage = (ev) => {
+      let data
+      try { data = JSON.parse(ev.data) } catch { return }
+
+      if (data?.event === 'systemStatus') {
+        log(`WS ← systemStatus: ${data.status}`)
+        return
+      }
+      if (data?.event === 'subscriptionStatus') {
+        if (data.status === 'subscribed' && !subscribedRef.current) {
+          subscribedRef.current = true
+          setStatus('subscribed')
+          log('WS ← subscriptionStatus: subscribed')
+        } else if (data.status === 'error') {
+          log(`WS ← subscriptionStatus: error (${data.errorMessage || 'unknown'})`)
+        }
+        return
+      }
+      if (data?.event === 'heartbeat') return
+
+      // Ticker array payload
+      if (Array.isArray(data) && data[1]?.c?.[0]) {
+        const last = parseFloat(data[1].c[0])
+        if (Number.isFinite(last)) {
+          lastTickAtRef.current = Date.now()
+          setPrice(last)
+          setTicks(t => t + 1)
+          scheduleStaleCheck()
+        }
+      }
+    }
+
+    ws.onclose = (ev) => {
+      const { code, reason } = ev || {}
+      log(`WS closed (code=${code}${reason ? `, reason="${reason}"` : ''})`)
+      setStatus('closed')
+      clearTimers()
+      connectingRef.current = false
+      subscribedRef.current = false
+      scheduleReconnect()
+    }
+
+    ws.onerror = () => {
+      log('WS error')
+      // onclose will handle reconnect
+    }
+  }
+
+  // One-time mount
+  useEffect(() => {
+    connectWS()
+    return () => {
+      clearTimers()
+      try { wsRef.current?.close(1000, 'unmount') } catch {}
+    }
+  }, [])
+
+  // Last tick "ago" display
   useEffect(() => {
     const iv = setInterval(() => {
-      const buf = bufRef.current
-      if (!buf.length) return
-      const chunk = buf.splice(0, FLUSH_MAX)
-      const ts = Date.now()
-      if (ts - lastFlushAtRef.current < 80) return // trivial throttle
-      lastFlushAtRef.current = ts
-      setLogs(prev => {
-        const next = [...chunk.reverse(), ...prev]
-        if (next.length > MAX_LOG_LINES) next.length = MAX_LOG_LINES
-        return next
-      })
-    }, FLUSH_INTERVAL_MS)
+      if (!lastTickAtRef.current) {
+        setLastTickAgo('--')
+      } else {
+        const s = Math.max(0, Math.floor((Date.now() - lastTickAtRef.current) / 1000))
+        setLastTickAgo(`${s}s`)
+      }
+    }, 1000)
     return () => clearInterval(iv)
   }, [])
 
-  // Initial fast REST hit for price (doesn't block LCP)
-  useEffect(() => {
-    (async () => {
-      try {
-        const px = await fetchSpot()
-        if (isFinite(px)) {
-          setPrice(px)
-          log(`REST price: ${px.toFixed(2)}`)
-        }
-      } catch {}
-    })()
-  }, [])
-
-  // Establish & maintain a single lightweight WS connection
-  useEffect(() => {
-    let closed = false
-
-    const connect = () => {
-      if (closed) return
-      setStatus('Connecting WS…')
-      log('Connecting WS for XBTUSD…')
-
-      const ws = new WebSocket('wss://ws.kraken.com/')
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        setConnected(true)
-        setStatus('Subscribing…')
-        backoffRef.current = 2_000
-        const sub = {
-          event: 'subscribe',
-          pair: [PAIR_WS],
-          subscription: { name: 'ticker' }
-        }
-        ws.send(JSON.stringify(sub))
-        log('WS → subscribe XBTUSD')
-      }
-
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data)
-          if (Array.isArray(msg)) {
-            // ticker payload: [chanId, {...}, channelName, pair]
-            const payload = msg[1]
-            const last = payload?.c?.[0]
-            if (last) {
-              const px = Number(last)
-              if (isFinite(px)) {
-                setPrice(px)
-                setTicks(t => t + 1)
-                setLastTickAt(Date.now())
-              }
-            }
-            return
-          }
-          if (msg.event === 'systemStatus') {
-            log(`WS ← systemStatus: ${msg.status}`)
-            return
-          }
-          if (msg.event === 'subscriptionStatus') {
-            if (msg.status === 'subscribed') {
-              setStatus('Live')
-              log('WS ← subscriptionStatus: subscribed')
-              return
-            } else {
-              setStatus('Error subscribing')
-              log('WS ← subscriptionStatus: error')
-            }
-          }
-        } catch {}
-      }
-
-      ws.onclose = (ev) => {
-        setConnected(false)
-        setStatus('Disconnected')
-        const code = ev?.code || 1005
-        log(`WS closed (code=${code})`)
-        scheduleReconnect()
-      }
-
-      ws.onerror = () => {
-        // Kraken WS often emits error then close; onclose handler will backoff
-      }
-    }
-
-    const scheduleReconnect = () => {
-      if (closed) return
-      const delay = backoffRef.current
-      log(`Reconnecting in ${(delay/1000).toFixed(1)}s…`)
-      setTimeout(() => {
-        if (backoffRef.current < 60_000) backoffRef.current *= 1.6
-        connect()
-      }, delay)
-    }
-
-    // Stale-tick detector
-    staleCheckRef.current = setInterval(() => {
-      const last = lastTickAt
-      if (!last) return
-      if (Date.now() - last > STALE_MS) {
-        log('No ticks in 30s — reconnecting')
-        try { wsRef.current?.close() } catch {}
-      }
-    }, 5_000)
-
-    connect()
-
-    return () => {
-      closed = true
-      clearInterval(staleCheckRef.current)
-      try { wsRef.current?.close(1000, 'unload') } catch {}
-    }
-  }, [lastTickAt])
-
-  const connBadge = useMemo(() => (
-    <span className={`badge ${connected ? 'ok' : 'warn'}`}>
-      {connected ? 'Connected' : 'Disconnected'}
-    </span>
-  ), [connected])
+  const connBadgeClass = useMemo(() => {
+    return status === 'subscribed' ? 'badge ok' :
+           status === 'open' ? 'badge ok' :
+           status === 'connecting' ? 'badge warn' : 'badge'
+  }, [status])
 
   return (
     <div className="wrap">
-      <div className="hero">
-        <div>
-          <div className="label">Pair</div>
-          <div className="val">BTC / USD</div>
-          <div className="small muted">Kraken spot — ticker via WebSocket</div>
-        </div>
-        <div className="row">
-          <div>{connBadge}</div>
-          <div className="badge">{status}</div>
-        </div>
-      </div>
+      <h1>BTC/USD — Kraken Realtime (logs & status)</h1>
 
       <div className="grid">
         <div className="card">
-          <div className="label">Last price</div>
-          <div className="val">{price ? `$${price.toLocaleString(undefined, {maximumFractionDigits: 2})}` : '—'}</div>
-          <div className="small muted">{ticks} ticks</div>
+          <div className="row">
+            <div className="label">Connection</div>
+            <div className={connBadgeClass}>{status}</div>
+          </div>
+          <div className="row" style={{marginTop: 6}}>
+            <div>
+              <div className="label">Last price</div>
+              <div className="val">{price ? `$${price.toLocaleString()}` : '—'}</div>
+            </div>
+            <div>
+              <div className="label">Ticks</div>
+              <div className="val">{ticks}</div>
+            </div>
+            <div>
+              <div className="label">Last tick ago</div>
+              <div className="val">{lastTickAgo}</div>
+            </div>
+            <div>
+              <div className="label">Backoff</div>
+              <div className="val">{backoff ? `${Math.round(backoff/1000)}s` : '—'}</div>
+            </div>
+          </div>
+          <div className="row" style={{marginTop: 10}}>
+            <button className="btn" onClick={() => {
+              try { wsRef.current?.close(4001, 'manual reconnect') } catch {}
+              log('Manual reconnect requested')
+            }}>Reconnect</button>
+            <button className="btn" onClick={() => {
+              setLogs([])
+              log('Logs cleared')
+            }}>Clear logs</button>
+          </div>
+          <div className="footer">CSP-safe, no inline JS/CSS. Respects Kraken WS limits with single-subscribe and backoff.</div>
         </div>
 
         <div className="card">
-          <div className="label">Notes</div>
-          <div className="small muted">Lightweight logs & capped DOM to improve LCP.</div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}>
           <div className="label">Logs (latest first)</div>
-          <div className="small muted">Max {MAX_LOG_LINES} lines, flushed every {(FLUSH_INTERVAL_MS/1000).toFixed(1)}s</div>
-        </div>
-        <div className="logs">
-          {logs.map((s, i) => <div key={i}>{s}</div>)}
+          <div className="logs" aria-live="polite" aria-atomic="false">
+            {logs.map((l, i) => <div key={i}>{l}</div>)}
+          </div>
         </div>
       </div>
     </div>

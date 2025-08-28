@@ -1,5 +1,5 @@
 {
-  "name": "kraken-realtime-logs-lite",
+  "name": "kraken-btc-ticker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "vite": "5.4.8",
-    "@vitejs/plugin-react": "4.3.2"
+    "@vitejs/plugin-react": "4.3.4",
+    "vite": "5.4.8"
   }
 }

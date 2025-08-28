@@ -1,10 +1,8 @@
-# Kraken Realtime — BTC Ticker, Status & Logs (Lite)
+# Kraken BTC Realtime (Logs & Status)
 
-- **No inline scripts/styles** (CSP-friendly)
-- **Buffered logs** (<=30 lines per flush, every 800ms) + **hard cap** 150 lines
-- **Single WS connection** to `wss://ws.kraken.com` subscribing `ticker` for `XBT/USD`
-- **Stale detector**: if no ticks in 30s, close & reconnect with backoff (up to ~60s)
-- **Initial REST price** fetch for quick UI fill (does not block LCP)
+Lightweight React + Vite app that connects to Kraken public WebSocket (spot, ticker) for **BTC/USD**,
+displays **status + logs**, and implements **robust reconnect** with exponential backoff and stale-tick
+watchdog — CSP-safe (no inline JS/CSS).
 
 ## Dev
 ```bash
@@ -16,3 +14,11 @@ npm run dev
 ```bash
 npm run build
 ```
+
+Deploy the `dist/` directory.
+
+## Notes
+- Single subscribe per connection (no double-subscribe).
+- Reconnects handled on `onclose` only, with capped exponential backoff.
+- Stale watchdog closes connection after 30s without ticks to recover.
+- No alerts / baselines. BTC only. Logs & status preserved.
