@@ -303,12 +303,6 @@ function growBackoff() {
   document.addEventListener('visibilitychange', onVis)
   return () => document.removeEventListener('visibilitychange', onVis)
 }, [])
-  // Lazy-mount logs shortly after first paint to avoid delaying LCP
-useEffect(() => {
-  const id = setTimeout(() => setShowLogs(true), 800)
-  return () => clearTimeout(id)
-}, [])
-
   // ---- Periodic snapshot (every 2s) ----
   const [ui, setUi] = useState(null)
   const sparkDataRef = useRef([]) // numbers, max 60
@@ -419,15 +413,15 @@ useEffect(() => {
           <div className="kv"><span className="k">30m change</span><span className="mono">{ui.ch30}</span></div>
           <div className="kv"><span className="k">60m change</span><span className="mono">{ui.ch60}</span></div>
           <div className="spark"><Sparkline data={ui.spark} /></div>
-          <div style={{marginTop:8}}><button onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() }} disabled={connectingRef.current}>Reconnect</button></div>
+          <div style={{marginTop:8}}><button onClick={() => { setLogs(l => [`${nowPT()} — ${`Manual reconnect requested (${nowPT()} PT)`}`, ...l]); connectWS() }} disabled={connectingRef.current}>Reconnect</button></div>
         </div>
         <div className="col">
-          {showLogs && (<>
+          <>
         <h2>Logs</h2>
           <div className="logs mono">
             {logs.map((s,i)=><div key={i}>{s}</div>)}
           </div>
-        </>)}
+        </>
       </div>
     </div>
   </div>
