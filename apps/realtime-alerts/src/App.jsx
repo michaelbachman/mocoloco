@@ -1,5 +1,21 @@
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+
+// ---- Global clock (module-level) ----
+let __clockCount = 0
+const __clockListeners = new Set()
+setInterval(() => {
+  __clockCount = (__clockCount + 1) % 1_000_000
+  __clockListeners.forEach(fn => { try { fn() } catch {} })
+}, 1000)
+
+function clockSubscribe(fn) {
+  __clockListeners.add(fn)
+  return () => __clockListeners.delete(fn)
+}
+function clockGetSnapshot() {
+  return __clockCount
+}
 
 // ---- Config ----
 const TOKENS = [
@@ -84,7 +100,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
   const [limitsTick, setLimitsTick] = useState(0) // 1s ticker for panel
-  const [renderTick, setRenderTick] = useState(0)
+  const renderTick = useSyncExternalStore(clockSubscribe, clockGetSnapshot)
 
   // Refs
   const wsRef = useRef(null)
@@ -428,17 +444,11 @@ export default function App() {
     return () => clearInterval(iv)
   }, [])
 
-  // ---- Render heartbeat (1s) ----
-  useEffect(() => {
-    const iv = setInterval(() => setRenderTick(t => (t + 1) % 1000000), 1000)
-    return () => clearInterval(iv)
-  }, [])
-
   // Initial connect
   useEffect(() => { connectWS() }, [])
 
   // ---- UI ----
-  const panel = {
+    const panel = {
     backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
     lastActionAt: lastActionAtRef.current || 0,
     nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
