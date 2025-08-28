@@ -150,6 +150,10 @@ export default function App() {
   })
   const lastTickRef = useRef(null)
   const ticksWindowRef = useRef([]) // timestamps of recent valid ticker messages
+  
+
+const avgTickMsRef = useRef(null) // moving avg of tick intervals
+
 
 
 
@@ -171,8 +175,6 @@ export default function App() {
 
 // ---- UI ----
 
-
-const avgTickMsRef = useRef(null) // moving avg of tick intervals
   
   // Persist certain refs when they change (via a lightweight 1s ticker)
   useEffect(() => {
