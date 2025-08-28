@@ -437,7 +437,6 @@ const avgTickMsRef = useRef(null) // moving avg of tick intervals
     }, 15000)
     return () => clearInterval(iv)
   }, [])
-  }, [lastTick])
 
   // ---- Panel heartbeat (1s, setInterval — resilient) ----
   useEffect(() => {
