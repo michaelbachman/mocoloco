@@ -264,7 +264,7 @@ function growBackoff() {
       const friendly = codes[code] || 'Unknown'
       const reason = ev?.reason || ''
 
-      log(`WS closed (code=${code} — ${friendly}${reason ? \", reason=\\\""+reason+"\\\"" : ''})`)
+      const extra = reason ? `, reason="${reason}"` : ""; log(`WS closed (code=${code} — ${friendly}${extra})`)
       if (code === 1006) {
         log('ℹ️  1006 Abnormal Closure is often due to network/idle conditions; reconnecting with backoff')
       }
