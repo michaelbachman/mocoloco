@@ -41,8 +41,6 @@ const Sparkline = React.memo(function Sparkline({ data = [], width = '100%', hei
   )
 })
 
-)
-
 export default function App(){
   const VISIBLE_MAX = 50
   const renderTick = useSyncExternalStore(clockSubscribe, clockGetSnapshot)
