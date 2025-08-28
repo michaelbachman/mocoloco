@@ -1,234 +1,254 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useMemo } from 'react'
 
-const PAIR = 'XBT/USD'
-const WS_URL = 'wss://ws.kraken.com'
+// ---- Config ----
+const KRAKEN_WS = 'wss://ws.kraken.com'
+const PAIR = 'XBT/USD'              // Kraken WS pair format
+const SUB = { event: 'subscribe', pair: [PAIR], subscription: { name: 'ticker' } }
 
-const SUBSCRIBE_GUARD_MS = 2500
-const BACKOFF_MIN_MS = 2000
-const BACKOFF_MAX_MS = 60000
-const JITTER_MS = 750
-const STALE_TICK_MS = 20000
-const PING_INTERVAL_MS = 15000
-const LOG_FLUSH_MS = 10000
+const STALE_MS = 40000              // consider stale if no WS activity for 40s
+const PING_MS  = 15000              // send ping every 15s to keep intermediaries awake
+const BACKOFF_MIN = 2000            // 2s
+const BACKOFF_MAX = 60000           // 60s
+
+// Visible logs cap to keep things light
 const LOG_MAX = 500
 
-export default function App() {
+function nowPT(){
+  const d = new Date()
+  try {
+    return d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
+  } catch {
+    return d.toISOString().replace('T',' ').slice(0,19) + 'Z'
+  }
+}
+
+export default function App(){
+  // UI state
   const [price, setPrice] = useState(null)
-  const [connected, setConnected] = useState(false)
   const [status, setStatus] = useState('disconnected')
   const [logs, setLogs] = useState([])
-  const [ticks, setTicks] = useState(0)
+  const [lastActivityAgo, setLastActivityAgo] = useState(0)
+  const [connecting, setConnecting] = useState(false)
 
+  // refs (never trigger re-render)
   const wsRef = useRef(null)
-  const lastTickRef = useRef(0)
-  const backoffRef = useRef(BACKOFF_MIN_MS)
-  const lastSubAtRef = useRef(0)
+  const lastActivityRef = useRef(0)
+  const channelIdRef = useRef(null)
+  const backoffRef = useRef(BACKOFF_MIN)
+  const staleIvRef = useRef(null)
   const pingIvRef = useRef(null)
-  const logBufferRef = useRef([])
-  const logFlushIvRef = useRef(null)
   const reconnectToRef = useRef(null)
+  const unsubscribedRef = useRef(false)
 
-  const nowPT = () => new Date().toLocaleTimeString('en-US', { hour12:false, timeZone:'America/Los_Angeles' })
-
-  const pushLog = (s) => {
-    const line = `[${nowPT()}] ${s}`
-    logBufferRef.current.push(line)
-    if (logBufferRef.current.length > LOG_MAX) {
-      logBufferRef.current.splice(0, logBufferRef.current.length - LOG_MAX)
-    }
+  function log(s){
+    setLogs(l => [ `[${new Date().toLocaleTimeString()}] ${s}`, ...(l||[]) ].slice(0, LOG_MAX))
   }
 
-  useEffect(() => {
-    pushLog('Booting…')
-    logFlushIvRef.current = setInterval(() => {
-      if (logBufferRef.current.length) {
-        setLogs(prev => {
-          const merged = [...logBufferRef.current, ...prev]
-          logBufferRef.current = []
-          return merged.slice(0, LOG_MAX)
-        })
-      }
-    }, LOG_FLUSH_MS)
-    return () => clearInterval(logFlushIvRef.current)
-  }, [])
+  function bump(){
+    lastActivityRef.current = Date.now()
+  }
 
-  const safeClose = () => {
-    try { wsRef.current?.close() } catch {}
+  function safeClose(code=1000, reason=''){
+    try { wsRef.current?.close(code, reason) } catch {}
     wsRef.current = null
   }
 
-  const scheduleReconnect = (why='reconnect') => {
-    setConnected(false)
-    setStatus('reconnecting')
-    const delay = Math.min(BACKOFF_MAX_MS, Math.max(BACKOFF_MIN_MS, backoffRef.current)) + Math.floor(Math.random()*JITTER_MS)
-    pushLog(`Reconnecting in ${(delay/1000).toFixed(1)}s (${why})`)
-    if (reconnectToRef.current) clearTimeout(reconnectToRef.current)
-    reconnectToRef.current = setTimeout(() => {
-      connectWS()
-      backoffRef.current = Math.min(BACKOFF_MAX_MS, Math.round(backoffRef.current * 1.6))
-    }, delay)
+  function clearTimers(){
+    if (staleIvRef.current) { clearInterval(staleIvRef.current); staleIvRef.current = null }
+    if (pingIvRef.current)  { clearInterval(pingIvRef.current);  pingIvRef.current  = null }
+    if (reconnectToRef.current) { clearTimeout(reconnectToRef.current); reconnectToRef.current = null }
   }
 
-  const resetBackoff = () => { backoffRef.current = BACKOFF_MIN_MS }
-
-  const subscribe = () => {
-    const now = Date.now()
-    if (now - lastSubAtRef.current < SUBSCRIBE_GUARD_MS) {
-      pushLog('Subscribe suppressed by guard window')
-      return
-    }
-    lastSubAtRef.current = now
-    const msg = { event:'subscribe', pair:[PAIR], subscription:{ name:'ticker' } }
-    try {
-      wsRef.current?.send(JSON.stringify(msg))
-      pushLog(`WS → subscribe ${PAIR.replace('/','')}`)
-    } catch (e) {
-      pushLog('Send subscribe failed; will reconnect')
-      scheduleReconnect('send-failed')
-    }
+  function scheduleReconnect(){
+    clearTimers()
+    const jitter = Math.random() * 250
+    const delay = Math.min(BACKOFF_MAX, Math.max(BACKOFF_MIN, backoffRef.current)) + jitter
+    log(`Reconnecting in ${(delay/1000).toFixed(1)}s…`)
+    reconnectToRef.current = setTimeout(connect, delay)
+    backoffRef.current = Math.min(BACKOFF_MAX, backoffRef.current * 1.7 + 200)
   }
 
-  const handleMsg = (ev) => {
-    let data
-    try { data = JSON.parse(ev.data) } catch { return }
-
-    if (data.event) {
-      if (data.event === 'heartbeat') return
-      if (data.event === 'systemStatus') { pushLog(`WS ← systemStatus: ${data.status}`); return }
-      if (data.event === 'subscriptionStatus') {
-        if (data.status === 'subscribed') {
-          pushLog(`WS ← subscribed ${data.subscription?.name} ${data.pair || ''}`)
-          setStatus('connected'); setConnected(true); resetBackoff()
-        } else {
-          pushLog(`WS ← subscriptionStatus: ${data.status}${data.errorMessage ? ' — '+data.errorMessage : ''}`)
-          scheduleReconnect('subscription-error')
-        }
-        return
-      }
-      return
-    }
-
-    if (Array.isArray(data) && data.length >= 4) {
-      const payload = data[1]
-      const last = payload?.c?.[0] || payload?.a?.[0] || payload?.b?.[0]
-      const p = last ? Number(last) : NaN
-      if (!Number.isFinite(p)) return
-      lastTickRef.current = Date.now()
-      setPrice(p)
-      setTicks(t => t + 1)
-    }
-  }
-
-  const connectWS = () => {
-    safeClose()
+  function connect(){
+    if (wsRef.current || connecting) return
+    setConnecting(true)
     setStatus('connecting')
-    pushLog(`Connecting WS for ${PAIR.replace('/','')}…`)
-
+    unsubscribedRef.current = false
     try {
-      const ws = new WebSocket(WS_URL)
+      const ws = new WebSocket(KRAKEN_WS)
       wsRef.current = ws
 
       ws.onopen = () => {
-        pushLog('WS open'); resetBackoff(); setConnected(true); setStatus('connected'); subscribe()
-        if (pingIvRef.current) clearInterval(pingIvRef.current)
+        setConnecting(false)
+        setStatus('open')
+        bump()
+        log(`Connecting WS for ${PAIR}…`)
+        // subscribe
+        ws.send(JSON.stringify(SUB))
+        log(`WS → subscribe ${PAIR}`)
+
+        // ping loop
         pingIvRef.current = setInterval(() => {
-          try { ws.send(JSON.stringify({ event:'ping' })) } catch {}
-        }, PING_INTERVAL_MS)
+          if (!wsRef.current) return
+          try {
+            wsRef.current.send(JSON.stringify({ event: 'ping' }))
+          } catch {}
+        }, PING_MS)
+
+        // stale watchdog
+        staleIvRef.current = setInterval(() => {
+          const last = lastActivityRef.current || 0
+          setLastActivityAgo(Date.now() - last)
+          if (Date.now() - last > STALE_MS) {
+            log('No WS activity in 40s — closing to recover')
+            backoffRef.current = Math.max(BACKOFF_MIN, backoffRef.current) // keep backoff
+            safeClose(4000, 'stale')
+          }
+        }, 1000)
       }
-      ws.onmessage = handleMsg
-      ws.onerror = () => { pushLog('WS error (see network tab)') }
+
+      ws.onmessage = (ev) => {
+        let msg
+        try { msg = JSON.parse(ev.data) } catch { return }
+        // Any parsed message counts as activity
+        bump()
+
+        // Heartbeat keeps us alive
+        if (msg?.event === 'heartbeat') return
+
+        // System / subscription status
+        if (msg?.event === 'systemStatus') {
+          log(`WS ← systemStatus: ${msg.status || 'unknown'}`)
+          return
+        }
+        if (msg?.event === 'subscriptionStatus') {
+          const st = msg.status
+          if (st === 'subscribed') {
+            channelIdRef.current = msg.channelID
+            log(`WS ← subscriptionStatus: subscribed`)
+            backoffRef.current = BACKOFF_MIN // reset backoff on success
+          } else if (st === 'error') {
+            log(`WS ← subscriptionStatus: error`)
+            backoffRef.current = Math.max(backoffRef.current * 1.5, BACKOFF_MIN + 1000)
+            scheduleReconnect()
+          }
+          return
+        }
+
+        // Ticker array form: [channelID, data, channelName, pair]
+        if (Array.isArray(msg) && msg.length >= 4) {
+          const [chanId, payload, channelName, pair] = msg
+          if (channelName === 'ticker' && (channelIdRef.current == null || chanId === channelIdRef.current)) {
+            const lastStr = payload?.c?.[0]
+            if (lastStr != null) {
+              const p = Number(lastStr)
+              if (!Number.isNaN(p)) {
+                setPrice(p)
+                return
+              }
+            }
+          }
+          return
+        }
+      }
+
       ws.onclose = (ev) => {
-        if (pingIvRef.current) clearInterval(pingIvRef.current)
+        clearTimers()
         const code = ev?.code || 1005
-        pushLog(`WS closed (code=${code}${ev?.reason ? ', reason="'+ev.reason+'"' : ''})`)
-        setConnected(false); setStatus('disconnected')
-        scheduleReconnect('close')
+        const reason = ev?.reason || ''
+        setStatus('closed')
+        if (!unsubscribedRef.current) {
+          log(`WS closed (code=${code}${reason?`, reason="${reason}"`:''})`)
+          scheduleReconnect()
+        } else {
+          log(`WS closed (clean)`)
+        }
       }
-    } catch (e) {
-      pushLog('WS init failed; scheduling reconnect')
-      scheduleReconnect('init-failed')
+
+      ws.onerror = () => {
+        // errors also cause close with some agents; rely on onclose to reconnect
+        log('WS error')
+      }
+
+    } catch (err) {
+      setConnecting(false)
+      setStatus('error')
+      log(`WS init error: ${err?.message || err}`)
+      scheduleReconnect()
     }
   }
 
+  function disconnect(){
+    unsubscribedRef.current = True
+    safeClose(1000, 'manual')
+    clearTimers()
+    setStatus('disconnected')
+  }
+
+  // Visibility handling: on resume, if closed, reconnect
   useEffect(() => {
-    connectWS()
-    const staleIv = setInterval(() => {
-      const last = lastTickRef.current
-      if (connected && last && (Date.now() - last) > STALE_TICK_MS) {
-        pushLog('No ticks in 20s — reconnecting')
-        scheduleReconnect('stale')
-      }
-    }, 5000)
-    const onVis = () => {
+    function onVis(){
       if (document.visibilityState === 'visible') {
-        const last = lastTickRef.current
-        if (!connected || !last || (Date.now() - last) > STALE_TICK_MS) {
-          pushLog('Page visible — ensuring live connection')
-          scheduleReconnect('visible')
+        // if no WS, try reconnect quickly with a small backoff reset
+        if (!wsRef.current) {
+          backoffRef.current = BACKOFF_MIN
+          scheduleReconnect()
         }
       }
     }
     document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+
+  // Boot once
+  useEffect(() => {
+    log('Booting…')
+    connect()
     return () => {
-      clearInterval(staleIv)
-      document.removeEventListener('visibilitychange', onVis)
-      if (pingIvRef.current) clearInterval(pingIvRef.current)
-      safeClose()
+      clearTimers()
+      safeClose(1000, 'unmount')
     }
   }, [])
 
-  const statusClass = useMemo(() => {
-    if (status === 'connected') return 'status ok'
-    if (status === 'reconnecting' || status === 'connecting') return 'status'
-    return 'status err'
+  // Derived UI bits
+  const statusBadge = useMemo(() => {
+    const cls = status === 'open' ? 'badge ok' : (status === 'connecting' ? 'badge warn' : 'badge')
+    return <span className={cls}>{status}</span>
   }, [status])
+
+  const lastActivitySec = Math.max(0, Math.round(lastActivityAgo / 1000))
 
   return (
     <div className="wrap">
       <div className="hero">
-        <div>
-          <div className={statusClass}><span className="dot" /> <strong>Status:</strong>&nbsp;{status}</div>
-          <div className="small">Public WS Ticker · Pair: {PAIR}</div>
+        <div className="center">
+          <div className="val">{price != null ? `$${price.toLocaleString()}` : '—'}</div>
+          <div className="label">BTC/USD (Kraken)</div>
         </div>
-        <div className="card" aria-live="polite" aria-atomic="true">
-          <div className="label">BTC/USD (last)</div>
-          <div className="val">{price ? `$${price.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—'}</div>
-          <div className="small">ticks: {ticks}</div>
+        <div className="row">
+          {statusBadge}
+          <button onClick={() => { backoffRef.current = BACKOFF_MIN; connect(); }} disabled={connecting || status === 'open'}>
+            Reconnect
+          </button>
         </div>
       </div>
 
       <div className="grid">
         <div className="card">
-          <div className="row">
-            <span className="badge ok">Connection</span>
-            <span className="small">{connected ? 'Live' : 'Idle'}</span>
-          </div>
-          <div className="kv" style={{marginTop: '6px'}}>
-            <div className="k">Endpoint</div><div className="v">{WS_URL}</div>
-            <div className="k">Stale window</div><div className="v">{(STALE_TICK_MS/1000)|0}s</div>
-            <div className="k">Backoff</div><div className="v">{BACKOFF_MIN_MS/1000|0}s → {BACKOFF_MAX_MS/1000|0}s (±{JITTER_MS}ms)</div>
-            <div className="k">Subscribe guard</div><div className="v">{SUBSCRIBE_GUARD_MS}ms</div>
-            <div className="k">Ping</div><div className="v">{PING_INTERVAL_MS/1000|0}s</div>
+          <div className="label">Connection</div>
+          <div className="small">
+            Pair: {PAIR} • Last activity: {lastActivitySec}s ago • Backoff: {(backoffRef.current/1000).toFixed(1)}s
           </div>
         </div>
-
         <div className="card">
-          <div className="row">
-            <span className="badge warn">Telemetry</span>
-            <span className="small">lightweight</span>
-          </div>
-          <div className="kv" style={{marginTop: '6px'}}>
-            <div className="k">Ticks received</div><div className="v">{ticks}</div>
-            <div className="k">Last tick (PT)</div><div className="v">{lastTickRef.current ? new Date(lastTickRef.current).toLocaleTimeString('en-US', {hour12:false, timeZone:'America/Los_Angeles'}) : '—'}</div>
-            <div className="k">Price</div><div className="v">{price ? `$${price.toLocaleString(undefined,{maximumFractionDigits:2})}` : '—'}</div>
-          </div>
+          <div className="label">Notes</div>
+          <div className="small">Resets stale on heartbeat / status / ticker. Exponential backoff with jitter. Single WS and subscription.</div>
         </div>
       </div>
 
-      <div className="card" style={{marginTop: '12px'}}>
-        <div className="row"><span className="badge">Logs</span><span className="small">flush {LOG_FLUSH_MS/1000|0}s · max {LOG_MAX}</span></div>
-        <div className="logs" role="log" aria-live="polite" aria-relevant="additions text">
-          {logs.map((l,i)=> <div key={i}>{l}</div>)}
+      <div className="card" style={{marginTop:12}}>
+        <div className="label" style={{marginBottom:6}}>Logs</div>
+        <div className="logs">
+          {(logs||[]).map((line,i) => <div key={i}>{line}</div>)}
         </div>
       </div>
     </div>

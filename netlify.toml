@@ -1,11 +1,19 @@
 [build]
+  base = "apps/realtime-alerts"
   command = "npm install --no-audit --no-fund && npm run build"
-  publish = "dist"
+  publish = "apps/realtime-alerts/dist"
 
 [[headers]]
   for = "/*"
   [headers.values]
+    # Keep scripts/styles strict; no inline usage in index.html
     Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' https://api.kraken.com wss://ws.kraken.com; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'"
-    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     Referrer-Policy = "no-referrer"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     X-Content-Type-Options = "nosniff"
+
+# Proxy any /api/* calls to Netlify Functions (not used now, but handy later)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200

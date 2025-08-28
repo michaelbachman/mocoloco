@@ -3,6 +3,14 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  build: { sourcemap: false, target: 'es2019' },
-  server: { port: 5173 }
+  build: {
+    target: 'es2019',
+    sourcemap: false
+  },
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp'
+    }
+  }
 })
