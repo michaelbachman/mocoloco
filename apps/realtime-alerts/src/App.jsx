@@ -121,6 +121,7 @@ export default function App() {
   const countersRef = useRef({
     connectAttempts: 0, subscribeSends: 0, errors: 0, closes: 0,
     watchdogResets: 0, rateDelayed: 0, queuedActions: 0,
+    ticks: 0,
   })
   const avgTickMsRef = useRef(null) // moving avg of tick intervals
   
@@ -326,6 +327,9 @@ export default function App() {
             const last = parseLastPrice(payload)
             if (last == null) return
 
+            // count a live tick
+            countersRef.current.ticks = (countersRef.current.ticks || 0) + 1
+
             // tick interval tracking (for adaptive watchdog)
             const nowMs = Date.now()
             if (lastTick) {
@@ -451,13 +455,14 @@ export default function App() {
     const panel = {
     backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
     lastActionAt: lastActionAtRef.current || 0,
-    nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
-    windowCount: actionsWindowRef.current.length,
+    nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()), (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
+    windowCount: (() => { const now = Date.now(); actionsWindowRef.current = actionsWindowRef.current.filter(t => (now - t) <= ACTION_WINDOW_MS); return actionsWindowRef.current.length })(),
     counters: { ...countersRef.current },
     failCount: failCountRef.current,
     avgTickMs: avgTickMsRef.current,
     ts: Date.now(),
     rt: renderTick,
+    sinceLastActionMs: lastActionAtRef.current ? Math.max(0, Date.now() - lastActionAtRef.current) : null,
   }
   return (
     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
@@ -483,7 +488,7 @@ export default function App() {
             <div>Rate spacing: <strong>{RATE_LIMIT_MS} ms</strong></div>
             <div>Min reconnect: <strong>{MIN_RECONNECT_MS} ms</strong></div>
             <div>Backoff now: <strong>{panel.backoff} ms</strong></div>
-            <div>Next allowed action: <strong>{panel.nextAllowedMs} ms</strong></div>
+            <div>Next allowed action: <strong>{panel.nextAllowedMs} ms</strong> <span style={{opacity:0.75}}>• since last: {panel.sinceLastActionMs ?? '—'} ms</span></div>
             <div>Last action at: <strong>{panel.lastActionAt ? new Date(panel.lastActionAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
             <div>Action window: <strong>{panel.windowCount}/{ACTION_WINDOW_MAX}</strong> in last {ACTION_WINDOW_MS/1000}s</div>
           </div>
@@ -496,6 +501,7 @@ export default function App() {
             <div>Subscribes sent: <strong>{panel.counters.subscribeSends}</strong></div>
             <div>Closes: <strong>{panel.counters.closes}</strong> • Errors: <strong>{panel.counters.errors}</strong></div>
             <div>Watchdog resets: <strong>{panel.counters.watchdogResets}</strong></div>
+            <div>Ticks received: <strong>{panel.counters.ticks}</strong></div>
             <div>Rate-delayed actions: <strong>{panel.counters.rateDelayed}</strong> • Queued actions: <strong>{panel.counters.queuedActions}</strong></div>
             <div>Consecutive failures: <strong>{panel.failCount}</strong></div>
             <div>Avg tick: <strong>{panel.avgTickMs ? (panel.avgTickMs/1000).toFixed(1) + 's' : '—'}</strong></div>
