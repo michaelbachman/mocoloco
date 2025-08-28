@@ -417,12 +417,8 @@ export default function App() {
     return () => clearInterval(iv)
   }, [lastTick])
 
-  // ---- Panel heartbeat (1s, RAF-driven) ----
+  // ---- Panel heartbeat (1s, setInterval — resilient) ----
   useEffect(() => {
-    let rafId = null
-    let last = 0
-    const SNAP_MS = 1000
-
     const snapshot = () => {
       try {
         const nextAllowed = Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now())
@@ -440,21 +436,10 @@ export default function App() {
         console.warn('Panel snapshot error', e)
       }
     }
-
-    const loop = (ts) => {
-      if (!last || (ts - last) >= SNAP_MS) {
-        snapshot()
-        last = ts
-      }
-      rafId = requestAnimationFrame(loop)
-    }
-
-    snapshot() // immediate paint
-    rafId = requestAnimationFrame(loop)
-
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId)
-    }
+    // Paint immediately then every second
+    snapshot()
+    const iv = setInterval(snapshot, 1000)
+    return () => clearInterval(iv)
   }, [])
 
   // Initial connect
@@ -475,7 +460,7 @@ export default function App() {
         <div style={{ fontSize: 12, opacity: 0.85 }}>WS Status: <strong>{wsStatus}</strong> <span style={{ opacity: 0.6 }}>(net: {isOnline ? 'online' : 'offline'}, vis: {isVisible ? 'visible' : 'hidden'})</span></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last tick: <strong>{lastTick ? new Date(lastTick).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last reconnect reason: <strong>{lastReconnectReasonRef.current}</strong></div>
-        <div style={{ fontSize: 11, opacity: 0.6 }}>Panel updated: {panel.ts ? new Date(panel.ts).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }) + ' PT' : '—'}</div>
+        <div style={{ fontSize: 11, opacity: 0.6 }}>Panel updated: {panel.ts ? new Date(panel.ts).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }) + ' PT' : '—'} • Render: {new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' })}</div>
       </div>
 
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', marginBottom: 12 }}>
