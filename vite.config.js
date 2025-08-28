@@ -1,17 +1,10 @@
 import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  plugins: [react()],
   build: {
     sourcemap: false,
-    target: 'es2019',
-    modulePreload: { polyfill: false },
-    assetsInlineLimit: 0
-  },
-  server: {
-    headers: {
-      // Allow CORS during local dev if needed
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Opener-Policy': 'same-origin'
-    }
+    target: 'es2019'
   }
 })
