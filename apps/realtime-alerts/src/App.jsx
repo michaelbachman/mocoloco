@@ -67,6 +67,8 @@ const lastMsgAtRef = useRef(0)            // any inbound message (incl. heartbea
   const lastTickAtRef = useRef(null)    // timestamp (ms) of last valid ticker
   const avgTickMsRef = useRef(null)     // EWMA of inter-tick interval
 
+  const subscribedRef = useRef(false)     // ticker subscription state
+
   // ---- Tick-rate second buckets (300s ring) ----
   const SEC_BUCKETS = 300
   const secBucketsRef = useRef(new Array(SEC_BUCKETS).fill(0)) // per-second tick counts
@@ -164,6 +166,7 @@ function growBackoff() {
     log(`Connecting: ${PAIR} (${reason})`)
 
     ws.onopen = () => {
+      subscribedRef.current = false
       connectingRef.current = false
       connectedRef.current = true
       resetBackoff()
@@ -198,6 +201,16 @@ function growBackoff() {
       try{
         const msg = JSON.parse(ev.data)
         if (msg?.event === 'heartbeat' || msg?.event === 'pong') return
+        if (msg?.event === 'subscriptionStatus') {
+          const ok = msg?.status === 'subscribed' && msg?.subscription?.name === 'ticker'
+          if (ok) {
+            subscribedRef.current = true
+            log(`✅ Subscribed to ticker (pair=${msg?.pair || PAIR})`)
+          } else if (msg?.status === 'error') {
+            log(`❌ Subscription error: ${msg?.errorMessage || 'unknown'}`)
+          }
+          return
+        }
 
         if (Array.isArray(msg) && msg.length >= 4 && msg[2] === 'ticker'){
           const data = msg[1]
@@ -225,6 +238,7 @@ function growBackoff() {
     }
 
     ws.onclose = (ev) => {
+      subscribedRef.current = false
       connectedRef.current = false
       connectingRef.current = false
       disconnectsRef.current++
@@ -303,6 +317,7 @@ function growBackoff() {
 
     const panel = {
       pair: PAIR,
+      subscribed: subscribedRef.current ? 'active' : 'pending',
       connects: String(connectsRef.current),
       disconnects: String(disconnectsRef.current),
       messages: String(messagesRef.current),
@@ -342,6 +357,7 @@ function growBackoff() {
         <div className="col">
           <h2>Connection</h2>
           <div className="kv"><span className="k">Pair</span><span className="mono">{ui.pair}</span></div>
+<div className="kv"><span className="k">Ticker status</span><span className="mono">{ui.subscribed}</span></div>
           <div className="kv"><span className="k">Current price</span><span className="mono">{ui.lastPrice}</span></div>
           <div className="kv"><span className="k">Connects</span><span className="mono">{ui.connects}</span></div>
           <div className="kv"><span className="k">Disconnects</span><span className="mono">{ui.disconnects}</span></div>
