@@ -455,7 +455,7 @@ export default function App() {
     const panel = {
     backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
     lastActionAt: lastActionAtRef.current || 0,
-    nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()), (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
+    nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
     windowCount: (() => { const now = Date.now(); actionsWindowRef.current = actionsWindowRef.current.filter(t => (now - t) <= ACTION_WINDOW_MS); return actionsWindowRef.current.length })(),
     counters: { ...countersRef.current },
     failCount: failCountRef.current,
