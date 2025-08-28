@@ -3,21 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kraken Realtime Alerts</title>
-    <link rel="preconnect" href="https://api.kraken.com" crossorigin>
-    <link rel="preconnect" href="https://ws.kraken.com" crossorigin>
-    <link rel="manifest" href="/manifest.webmanifest">
-    <style>
-      :root { color-scheme: light dark; }
-      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; background: Canvas; color: CanvasText; }
-      #root { min-height: 100dvh; display: grid; place-items: center; }
-      .wrap { max-width: 920px; margin: 0 auto; padding: 16px 20px; width: 100%; }
-      .card { border: 1px solid #e5e7eb22; border-radius: 14px; padding: 12px 14px; box-shadow: 0 1px 8px #0000000a; }
-    </style>
+    <title>Kraken Realtime BTC</title>
   </head>
   <body>
-    <div id="root">Loading…</div>
-    <script src="/boot.js" defer></script>
-    <script src="/sw-register.js" defer></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

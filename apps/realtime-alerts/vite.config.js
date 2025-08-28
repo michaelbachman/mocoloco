@@ -2,15 +2,15 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  base: '/',
   plugins: [react()],
   build: {
-    manifest: true,
     target: 'es2019',
-    sourcemap: false,
-    rollupOptions: {
-      input: 'src/main.jsx',
-      output: { manualChunks: undefined }
+    sourcemap: false
+  },
+  server: {
+    headers: {
+      // helpful locally to mimic Netlify CSP
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; connect-src 'self' https://api.kraken.com wss://ws.kraken.com; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'"
     }
   }
 })
