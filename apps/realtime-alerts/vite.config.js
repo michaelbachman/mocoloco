@@ -2,24 +2,16 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  base: '/',
   plugins: [react()],
   build: {
+    manifest: true,
     sourcemap: false,
     target: 'es2019',
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        pure_funcs: ['console.debug'], manifest: true}
-    },
     rollupOptions: {
-      treeshake: {
-        moduleSideEffects: false,
-        propertyReadSideEffects: false,
-        tryCatchDeoptimization: false,
-        unknownGlobalSideEffects: false
+      output: {
+        manualChunks: undefined
       }
     }
-  },
-  define: { 'process.env.NODE_ENV': JSON.stringify('production') }
+  }
 })
