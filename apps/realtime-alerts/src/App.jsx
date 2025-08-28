@@ -35,10 +35,10 @@ function Sparkline({ data = [], width = '100%', height = 52, stroke = '#4ade80' 
 const PAIR = 'XBT/USD'
 const WS_URL = 'wss://ws.kraken.com'
 
-// ---------- Global heartbeat ----------
-const renderTick = useSyncExternalStore(clockSubscribe, clockGetSnapshot)
+// ---------- Global heartbeat (moved into component to follow Hooks rules) ----------
 
 export default function App(){
+  const renderTick = useSyncExternalStore(clockSubscribe, clockGetSnapshot)
   // ---------- refs (declare FIRST to avoid TDZ) ----------
   const wsRef = useRef(null)
   const connectingRef = useRef(false)
