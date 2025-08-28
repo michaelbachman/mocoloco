@@ -1,5 +1,6 @@
 
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { clockSubscribe, clockGetSnapshot } from './clockStore'
 // Minimal inline SVG sparkline (no deps)
 function Sparkline({ data = [], width = '100%', height = 40, stroke = '#4ade80' }) {
   const w = 200; // virtual width
@@ -23,22 +24,6 @@ function Sparkline({ data = [], width = '100%', height = 40, stroke = '#4ade80' 
   );
 }
 
-
-// ---- Global clock (module-level) ----
-let __clockCount = 0
-const __clockListeners = new Set()
-setInterval(() => {
-  __clockCount = (__clockCount + 1) % 1_000_000
-  __clockListeners.forEach(fn => { try { fn() } catch {} })
-}, 1000)
-
-function clockSubscribe(fn) {
-  __clockListeners.add(fn)
-  return () => __clockListeners.delete(fn)
-}
-function clockGetSnapshot() {
-  return __clockCount
-}
 
 // ---- Config ----
 const TOKENS = [
