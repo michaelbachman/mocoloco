@@ -3,7 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kraken Real-time Alerts</title>
+    <title>Kraken Realtime Alerts — BTC</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji; margin: 0; padding: 24px; background: #0b1020; color: #e5e7eb; }
+      .card { background: #0f172a; border: 1px solid #1f2a44; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 10px 20px rgba(0,0,0,.25) inset, 0 2px 8px rgba(0,0,0,.2); }
+      .title { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #c7d2fe; }
+      .row { display: flex; gap: 16px; flex-wrap: wrap; }
+      .col { flex: 1 1 320px; min-width: 280px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .spark { width: 100%; height: 56px; border: 2px solid #334155; border-radius: 8px; padding: 2px; margin-top: 6px; }
+      .small { font-size: 12px; color: #9ca3af; }
+      .ok { color: #34d399; }
+      .warn { color: #f59e0b; }
+      .bad { color: #f87171; }
+      .muted { color: #93c5fd; }
+      button { background: #1e293b; border: 1px solid #334155; color: #e5e7eb; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      .logs { height: 220px; overflow: auto; background: #0b1225; border: 1px solid #1f2a44; border-radius: 8px; padding: 8px; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .kv { display: flex; justify-content: space-between; gap: 8px; }
+      .k { color: #9ca3af; }
+      .v { color: #e5e7eb; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

@@ -1,28 +1,21 @@
-# Netlify config for Kraken real-time alerts (BTC-only)
-
 [build]
   command = "cd apps/realtime-alerts && npm install --no-audit --no-fund && npm run build"
   publish = "apps/realtime-alerts/dist"
 
 [functions]
-  directory = "netlify/functions"
   node_bundler = "esbuild"
-  external_node_modules = []
 
-[build.environment]
-  NODE_VERSION = "18"
-
-# Optional friendly proxy for functions:
-# Call your function as /api/telegram instead of /.netlify/functions/telegram
+# API redirect (no functions used currently, but keep handy)
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
 
+# Security headers (CSP allows Kraken WS + HTTPS)
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' wss://ws.kraken.com https:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "no-referrer"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' wss://ws.kraken.com https:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
