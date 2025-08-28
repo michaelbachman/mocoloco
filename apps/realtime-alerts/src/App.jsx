@@ -1,6 +1,22 @@
 
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { clockSubscribe, clockGetSnapshot } from './clockStore'
+
+class ErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state = { err: null, info: null } }
+  static getDerivedStateFromError(err){ return { err } }
+  componentDidCatch(err, info){ this.setState({ info }) }
+  render(){
+    if(this.state.err){
+      return <div style={{padding:12, background:'#fef2f2', color:'#7f1d1d', border:'1px solid #7f1d1d', borderRadius:8}}>
+        <div style={{fontWeight:700, marginBottom:6}}>Runtime error</div>
+        <div style={{whiteSpace:'pre-wrap', fontFamily:'monospace', fontSize:12}}>{String(this.state.err.stack || this.state.err)}</div>
+      </div>
+    }
+    return this.props.children
+  }
+}
+
 // Minimal inline SVG sparkline (no deps)
 function Sparkline({ data = [], width = '100%', height = 40, stroke = '#4ade80' }) {
   const w = 200; // virtual width
@@ -491,7 +507,8 @@ useEffect(() => {
     sinceLastActionMs: lastActionAtRef.current ? Math.max(0, Date.now() - lastActionAtRef.current) : null,
   }
   return (
-    <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
+    <ErrorBoundary>
+      <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
       <h1 style={{ fontSize: '20px', marginBottom: 8 }}>Kraken Real-time Alerts (WS, Pro)</h1>
 
       {runtimeError && (
@@ -607,5 +624,6 @@ useEffect(() => {
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   )
 }
