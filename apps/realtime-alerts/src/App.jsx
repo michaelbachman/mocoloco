@@ -275,10 +275,16 @@ function growBackoff() {
     }
   }
 
-  useEffect(() => { connectWS('initial') }, [])
+  useEffect(() => {
+  const id = setTimeout(() => connectWS('initial'), 150)
+  return () => clearTimeout(id)
+}, [])
 
 
-  useEffect(() => { connectWS('initial') }, [])
+  useEffect(() => {
+  const id = setTimeout(() => connectWS('initial'), 150)
+  return () => clearTimeout(id)
+}, [])
 
   useEffect(() => {
   return () => {
@@ -297,6 +303,12 @@ function growBackoff() {
   document.addEventListener('visibilitychange', onVis)
   return () => document.removeEventListener('visibilitychange', onVis)
 }, [])
+  // Lazy-mount logs shortly after first paint to avoid delaying LCP
+useEffect(() => {
+  const id = setTimeout(() => setShowLogs(true), 800)
+  return () => clearTimeout(id)
+}, [])
+
   // ---- Periodic snapshot (every 2s) ----
   const [ui, setUi] = useState(null)
   const sparkDataRef = useRef([]) // numbers, max 60
@@ -410,11 +422,13 @@ function growBackoff() {
           <div style={{marginTop:8}}><button onClick={()=>connectWS('manual')} disabled={connectingRef.current}>Reconnect</button></div>
         </div>
         <div className="col">
-          <h2>Logs</h2>
+          {showLogs && (<>
+        <h2>Logs</h2>
           <div className="logs mono">
             {logs.map((s,i)=><div key={i}>{s}</div>)}
           </div>
         </div>
+        </>)
       </div>
     </div>
   )
