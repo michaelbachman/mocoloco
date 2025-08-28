@@ -1,7 +1,19 @@
 {
-  "name": "kraken-realtime-alerts-monorepo",
+  "name": "kraken-realtime-logs-lite",
+  "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "apps/realtime-alerts"
-  ]
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "vite": "5.4.8",
+    "@vitejs/plugin-react": "4.3.2"
+  }
 }

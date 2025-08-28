@@ -5,6 +5,14 @@ export default defineConfig({
   plugins: [react()],
   build: {
     sourcemap: false,
-    target: 'es2019'
+    target: 'es2019',
+    modulePreload: { polyfill: false },
+    outDir: 'dist',
+    assetsDir: 'assets',
+    emptyOutDir: true
+  },
+  server: {
+    port: 5173,
+    strictPort: true
   }
 })

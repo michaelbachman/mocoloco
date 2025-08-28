@@ -1,21 +1,18 @@
-# Kraken Realtime BTC — Logs & Status (No Sparkline)
+# Kraken Realtime — BTC Ticker, Status & Logs (Lite)
 
-- BTC/USD (XBT/USD) live price via Kraken Public **WebSocket** ticker.
-- Minimal UI: connection status, telemetry counters, and a logs panel.
-- No alerts or baselines. No charts/sparkline.
-- Conservative reconnect/backoff with jitter and guards to stay within Kraken limits.
-- CSP-safe: no inline scripts/styles; styles in `style.css`.
+- **No inline scripts/styles** (CSP-friendly)
+- **Buffered logs** (<=30 lines per flush, every 800ms) + **hard cap** 150 lines
+- **Single WS connection** to `wss://ws.kraken.com` subscribing `ticker` for `XBT/USD`
+- **Stale detector**: if no ticks in 30s, close & reconnect with backoff (up to ~60s)
+- **Initial REST price** fetch for quick UI fill (does not block LCP)
 
-## Develop
+## Dev
 ```bash
-cd apps/realtime-alerts
-npm ci
+npm i
 npm run dev
 ```
 
 ## Build
 ```bash
-cd apps/realtime-alerts
-npm ci
 npm run build
 ```
