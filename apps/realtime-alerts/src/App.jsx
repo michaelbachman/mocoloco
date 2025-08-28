@@ -149,6 +149,27 @@ export default function App(){
 
   // derived snapshot
   const nowMs = Date.now()
+const lastPx = lastPriceRef.current
+
+const oneMin = (() => {
+  const SAMPLE_EVERY_MS = 10_000
+  const SLOTS = Math.ceil(5 * 60 * 1000 / SAMPLE_EVERY_MS)
+  if (!Array.isArray(ringPxRef.current) || !ringPxRef.current.length) return { usd:null, pct:null, fresh:false }
+  const tailIdx = (ringIdxRef.current - 1 + SLOTS) % SLOTS
+  const headSlots = Math.round(60_000 / SAMPLE_EVERY_MS) // 60s window
+  const headIdx = (tailIdx - headSlots + SLOTS * 10) % SLOTS
+  const tailPx = ringPxRef.current[tailIdx]
+  const headPx = ringPxRef.current[headIdx]
+  const headTs = ringTsRef.current[headIdx]
+  if (headPx != null && tailPx != null && (Date.now() - headTs) >= (60_000 - SAMPLE_EVERY_MS)) {
+    const usd = tailPx - headPx
+    const pct = (usd / headPx) * 100
+    const fresh = (Date.now() - ringTsRef.current[tailIdx]) < 15_000
+    return { usd, pct, fresh }
+  }
+  return { usd:null, pct:null, fresh:false }
+})()
+
   const t60 = ticksWindowRef.current.filter(t => t >= nowMs - 60000).length
   const t300 = ticksWindowRef.current.filter(t => t >= nowMs - 300000).length
   const rate60 = t60 / 60.0
@@ -160,6 +181,7 @@ export default function App(){
         <div className="col">
           <h2>Connection</h2>
           <div className="kv"><span className="k">Pair</span><span className="mono">{PAIR}</span></div>
+<div className="kv"><span className="k">Current price</span><span className="mono">{lastPx ? `$${lastPx.toFixed(2)}` : '—'}</span></div>
           <div className="kv"><span className="k">Connects</span><span className="mono">{countersRef.current.connects}</span></div>
           <div className="kv"><span className="k">Disconnects</span><span className="mono">{countersRef.current.disconnects}</span></div>
           <div className="kv"><span className="k">Messages</span><span className="mono">{countersRef.current.messages}</span></div>
@@ -167,7 +189,9 @@ export default function App(){
           <div className="kv"><span className="k">Avg tick interval</span><span className="mono">{avgTickMsRef.current ? `${avgTickMsRef.current.toFixed(0)} ms` : '—'}</span></div>
           <div className="kv"><span className="k">Ticks (60s / 300s)</span><span className="mono">{t60} / {t300}</span></div>
           <div className="kv"><span className="k">Rate (60s / 300s)</span><span className="mono">{rate60.toFixed(2)}/s • {rate300.toFixed(2)}/s</span></div>
-          <div className="kv"><span className="k">5m change</span><span className="mono">
+          <div className="kv"><span className="k">1m change</span><span className="mono">{oneMin.pct == null ? '—' : `${oneMin.pct >= 0 ? '+' : ''}${oneMin.pct.toFixed(2)}% (${oneMin.usd >= 0 ? '+' : ''}$${Math.abs(oneMin.usd).toFixed(2)})${!oneMin.fresh ? ' • stale' : ''}`}
+</span></div>
+<div className="kv"><span className="k">5m change</span><span className="mono">
             {fiveMinPctRef.current == null ? '—' :
               `${fiveMinPctRef.current >= 0 ? '+' : ''}${fiveMinPctRef.current.toFixed(2)}% (${fiveMinUsdRef.current >= 0 ? '+' : ''}$${Math.abs(fiveMinUsdRef.current).toFixed(2)})${!fiveMinFreshRef.current ? ' • stale' : ''}`}
           </span></div>
