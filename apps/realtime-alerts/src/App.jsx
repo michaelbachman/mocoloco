@@ -1,6 +1,28 @@
 
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LineChart, Line, ResponsiveContainer } from 'recharts'
+// Minimal inline SVG sparkline (no deps)
+function Sparkline({ data = [], width = '100%', height = 40, stroke = '#4ade80' }) {
+  const w = 200; // virtual width
+  const h = 40;
+  const n = data.length;
+  if (!n) return <svg width={width} height={height} viewBox={`0 0 ${w} ${h}`}></svg>;
+  const xs = data.map((d, i) => (i / Math.max(1, n - 1)) * (w - 2) + 1);
+  const ysVals = data.map(d => (typeof d.r === 'number' && isFinite(d.r)) ? d.r : 0);
+  const min = Math.min(...ysVals);
+  const max = Math.max(...ysVals);
+  const span = (max - min) || 1;
+  const ys = ysVals.map(v => {
+    const y = h - 2 - ((v - min) / span) * (h - 4);
+    return Math.min(h - 1, Math.max(1, y));
+  });
+  const pts = xs.map((x,i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <polyline points={pts} fill="none" stroke={stroke} strokeWidth="2" />
+    </svg>
+  );
+}
+
 
 // ---- Global clock (module-level) ----
 let __clockCount = 0
