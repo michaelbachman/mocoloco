@@ -1,4 +1,3 @@
-# Build-free static site
 [build]
   command = ""
   publish = "."
@@ -6,7 +5,7 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' https://api.kraken.com wss://ws.kraken.com; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'"
-    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
-    Referrer-Policy = "no-referrer"
-    X-Content-Type-Options = "nosniff"
+  Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' https://api.kraken.com wss://ws.kraken.com; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'"
+  Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+  Referrer-Policy = "no-referrer"
+  X-Content-Type-Options = "nosniff"
