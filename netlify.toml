@@ -5,13 +5,11 @@
 [functions]
   node_bundler = "esbuild"
 
-# API redirect (no functions used currently, but keep handy)
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
 
-# Security headers (CSP allows Kraken WS + HTTPS)
 [[headers]]
   for = "/*"
   [headers.values]
