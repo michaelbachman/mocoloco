@@ -419,7 +419,7 @@ useEffect(() => {
           <div className="kv"><span className="k">30m change</span><span className="mono">{ui.ch30}</span></div>
           <div className="kv"><span className="k">60m change</span><span className="mono">{ui.ch60}</span></div>
           <div className="spark"><Sparkline data={ui.spark} /></div>
-          <div style={{marginTop:8}}><button onClick={()=>connectWS('manual')} disabled={connectingRef.current}>Reconnect</button></div>
+          <div style={{marginTop:8}}><button onClick={() => { setLogs(l => [`Manual reconnect requested (${nowPT()} PT)`, ...l]); connectWS() }} disabled={connectingRef.current}>Reconnect</button></div>
         </div>
         <div className="col">
           {showLogs && (<>
