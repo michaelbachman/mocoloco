@@ -6,74 +6,10 @@
     <title>Kraken Realtime Alerts</title>
     <link rel="preconnect" href="https://api.kraken.com" crossorigin>
     <link rel="preconnect" href="https://ws.kraken.com" crossorigin>
-    <link rel="stylesheet" href="styles.css">
-    <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.kraken.com wss://ws.kraken.com; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'">
+    <link rel="stylesheet" href="/style.css">
   </head>
   <body>
-    <div class="wrap">
-      <header class="hero">
-        <div>
-          <h1>Kraken Realtime Alerts</h1>
-          <div class="small">Spot only • Lightweight build-free app</div>
-        </div>
-        <div class="row">
-          <label class="small">Pair:</label>
-          <select id="pair">
-            <option value="XBTUSD">BTC/USD (XBTUSD)</option>
-            <option value="ETHUSD">ETH/USD (ETHUSD)</option>
-            <option value="SOLUSD">SOL/USD (SOLUSD)</option>
-          </select>
-          <button id="reconnectBtn" class="btn">Reconnect</button>
-        </div>
-      </header>
-
-      <main class="grid">
-        <section class="card">
-          <div class="label">Current price</div>
-          <div class="val" id="price">—</div>
-          <div class="row small">
-            <div id="baseline">Baseline: —</div>
-            <div class="badge" id="direction">—</div>
-          </div>
-          <div class="row small">
-            <div id="deltaPct">Δ%: —</div>
-            <div id="deltaUsd">Δ$: —</div>
-          </div>
-          <div class="row small">
-            <div id="quiet">Quiet hours: 11:00pm–7:00am PT</div>
-            <div id="lastUpdate">Last: —</div>
-          </div>
-          <div class="sparkline-wrap"><svg id="spark" width="260" height="48" viewBox="0 0 260 48" aria-label="price sparkline"></svg></div>
-        </section>
-
-        <section class="card">
-          <div class="row" style="justify-content:space-between;align-items:center;">
-            <div class="label">Telemetry</div>
-            <div id="connBadge" class="badge">disconnected</div>
-          </div>
-          <div class="telemetry">
-            <div><span class="label">Ticks received</span><span id="ticks">0</span></div>
-            <div><span class="label">Avg tick (sec)</span><span id="avgTick">—</span></div>
-            <div><span class="label">Reconnections</span><span id="recons">0</span></div>
-            <div><span class="label">Backoff (ms)</span><span id="backoff">0</span></div>
-            <div><span class="label">Next allowed action</span><span id="nextAllowed">now</span></div>
-          </div>
-        </section>
-
-        <section class="card" style="grid-column:1 / -1;">
-          <div class="row" style="justify-content:space-between;align-items:center;">
-            <div class="label">Logs</div>
-            <div class="row">
-              <button id="clearLogs" class="btn btn-sm">Clear</button>
-              <label class="small"><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
-            </div>
-          </div>
-          <div id="logs" class="logs" role="log" aria-live="polite"></div>
-        </section>
-      </main>
-    </div>
-
-    <script type="module" src="app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
