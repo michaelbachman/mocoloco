@@ -13,23 +13,27 @@ function nowPT() {
 const Sparkline = React.memo(function Sparkline({ data = [], width = '100%', height = 44, stroke = '#16a34a' }) {
   const w = 200, h = 44
   const n = data.length
-  if (!n) const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <line x1="1" y1={h/2} x2={w-1} y2={h/2} stroke="#bbb" strokeDasharray="4 3" strokeWidth="1" />
-    </svg>
-  )
+  if (!n) {
+    return (
+      <svg width={width} height={height} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+        <line x1="1" y1={h/2} x2={w-1} y2={h/2} stroke="#bbb" strokeDasharray="4 3" strokeWidth="1" />
+      </svg>
+    )
+  }
   let min = Infinity, max = -Infinity
-  for (let i=0;i<n;i++){ const v = data[i]; if (v < min) min = v; if (v > max) max = v }
+  for (let i = 0; i < n; i++) {
+    const v = data[i]
+    if (v < min) min = v
+    if (v > max) max = v
+  }
   const span = (max - min) || 1
   const step = (w - 2) / Math.max(1, n - 1)
   let pts = ''
-  for (let i=0;i<n;i++){
+  for (let i = 0; i < n; i++) {
     const x = 1 + step * i
     const y = h - 2 - ((data[i] - min) / span) * (h - 4)
-    pts += (i? ' ' : '') + x.toFixed(1) + ',' + Math.min(h-1, Math.max(1, y)).toFixed(1)
+    pts += (i ? ' ' : '') + x.toFixed(1) + ',' + Math.min(h - 1, Math.max(1, y)).toFixed(1)
   }
-  const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
   return (
     <svg width={width} height={height} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       <polyline points={pts} fill="none" stroke={stroke} strokeWidth="2" />
@@ -37,7 +41,10 @@ const Sparkline = React.memo(function Sparkline({ data = [], width = '100%', hei
   )
 })
 
+)
+
 export default function App(){
+  const VISIBLE_MAX = 50
   const renderTick = useSyncExternalStore(clockSubscribe, clockGetSnapshot)
 
   // ---- WS + metrics refs (no state writes in hot path) ----
