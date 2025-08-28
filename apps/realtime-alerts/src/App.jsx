@@ -84,11 +84,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [isVisible, setIsVisible] = useState(typeof document !== 'undefined' ? !document.hidden : true)
   const [limitsTick, setLimitsTick] = useState(0) // 1s ticker for panel
-  const [panel, setPanel] = useState({
-    backoff: 0, lastActionAt: 0, nextAllowedMs: 0, windowCount: 0,
-    counters: { connectAttempts: 0, subscribeSends: 0, errors: 0, closes: 0, watchdogResets: 0, rateDelayed: 0, queuedActions: 0 },
-    failCount: 0, avgTickMs: null, ts: 0,
-  })
+  const [renderTick, setRenderTick] = useState(0)
 
   // Refs
   const wsRef = useRef(null)
@@ -111,8 +107,7 @@ export default function App() {
     watchdogResets: 0, rateDelayed: 0, queuedActions: 0,
   })
   const avgTickMsRef = useRef(null) // moving avg of tick intervals
-  const panelIvRef = useRef(null)
-
+  
   // Persist certain refs when they change (via a lightweight 1s ticker)
   useEffect(() => {
     const iv = setInterval(() => {
@@ -442,10 +437,27 @@ export default function App() {
     return () => clearInterval(iv)
   }, [])
 
+  // ---- Render heartbeat (1s) ----
+  useEffect(() => {
+    const iv = setInterval(() => setRenderTick(t => (t + 1) % 1000000), 1000)
+    return () => clearInterval(iv)
+  }, [])
+
   // Initial connect
   useEffect(() => { connectWS() }, [])
 
   // ---- UI ----
+  const panel = {
+    backoff: Math.min(backoffRef.current, BACKOFF_MAX_MS),
+    lastActionAt: lastActionAtRef.current || 0,
+    nextAllowedMs: Math.max(0, (lastActionAtRef.current || 0) + RATE_LIMIT_MS - Date.now()),
+    windowCount: actionsWindowRef.current.length,
+    counters: { ...countersRef.current },
+    failCount: failCountRef.current,
+    avgTickMs: avgTickMsRef.current,
+    ts: Date.now(),
+    rt: renderTick,
+  }
   return (
     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#e5e7eb', background: '#0b0f17', minHeight: '100vh', padding: '16px' }}>
       <h1 style={{ fontSize: '20px', marginBottom: 8 }}>Kraken Real-time Alerts (WS, Pro)</h1>
@@ -460,7 +472,7 @@ export default function App() {
         <div style={{ fontSize: 12, opacity: 0.85 }}>WS Status: <strong>{wsStatus}</strong> <span style={{ opacity: 0.6 }}>(net: {isOnline ? 'online' : 'offline'}, vis: {isVisible ? 'visible' : 'hidden'})</span></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last tick: <strong>{lastTick ? new Date(lastTick).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }) + ' PT' : '—'}</strong></div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>Last reconnect reason: <strong>{lastReconnectReasonRef.current}</strong></div>
-        <div style={{ fontSize: 11, opacity: 0.6 }}>Panel updated: {panel.ts ? new Date(panel.ts).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }) + ' PT' : '—'} • Render: {new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' })}</div>
+        <div style={{ fontSize: 11, opacity: 0.6 }}>Panel updated: {new Date(panel.ts).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }) + ' PT'} • Render tick: {panel.rt}</div>
       </div>
 
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', marginBottom: 12 }}>
