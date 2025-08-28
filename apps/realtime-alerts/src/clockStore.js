@@ -1,4 +1,4 @@
-// global heartbeat; drives 1s UI updates
+// global heartbeat; 1s cadence
 let tick = 0
 const subs = new Set()
 setInterval(() => { tick = (tick + 1) % 1_000_000; subs.forEach(f => { try{ f() }catch{} }) }, 1000)
