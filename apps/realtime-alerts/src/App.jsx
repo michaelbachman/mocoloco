@@ -66,6 +66,7 @@ const lastMsgAtRef = useRef(0)            // any inbound message (incl. heartbea
   const lastPriceRef = useRef(null)
   const lastTickAtRef = useRef(null)    // timestamp (ms) of last valid ticker
   const avgTickMsRef = useRef(null)     // EWMA of inter-tick interval
+  const pageHiddenRef = useRef(false)      // track page visibility
 
   const subscribedRef = useRef(false)     // ticker subscription state
 
@@ -181,13 +182,13 @@ function growBackoff() {
       if (!pingTRef.current) {
         pingTRef.current = setInterval(() => {
           try { ws.send(JSON.stringify({ event:'ping', reqid: Date.now() })) } catch {}
-        }, 25_000)
+        }, 30_000)
       }
       // stale link monitor: if no msgs >35s, force reconnect
       if (!staleTRef.current) {
         staleTRef.current = setInterval(() => {
           const silentMs = Date.now() - lastMsgAtRef.current
-          if (silentMs > 35_000) {
+          if (silentMs > 45_000) {
             log('Stale WS (>35s no msgs); closing to reconnect')
             try { ws.close(4000, 'stale') } catch {}
           }
@@ -242,7 +243,32 @@ function growBackoff() {
       connectedRef.current = false
       connectingRef.current = false
       disconnectsRef.current++
-      log(`WS closed (code=${ev?.code||'n/a'}, reason="${ev?.reason||''}")`)
+
+      const codes = {
+        1000: 'Normal Closure',
+        1001: 'Going Away',
+        1002: 'Protocol Error',
+        1003: 'Unsupported Data',
+        1005: 'No Status Received',
+        1006: 'Abnormal Closure (no close frame)',
+        1007: 'Invalid Frame Payload',
+        1008: 'Policy Violation',
+        1009: 'Message Too Big',
+        1010: 'Mandatory Extension',
+        1011: 'Internal Error',
+        1012: 'Service Restart',
+        1013: 'Try Again Later',
+        1015: 'TLS Handshake Failure'
+      }
+      const code = ev?.code ?? 'n/a'
+      const friendly = codes[code] || 'Unknown'
+      const reason = ev?.reason || ''
+
+      log(`WS closed (code=${code} — ${friendly}${reason ? \", reason=\\\""+reason+"\\\"" : ''})`)
+      if (code === 1006) {
+        log('ℹ️  1006 Abnormal Closure is often due to network/idle conditions; reconnecting with backoff')
+      }
+
       clearTimers()
       growBackoff()
       scheduleReconnect('onclose')
@@ -263,6 +289,14 @@ function growBackoff() {
     connectingRef.current = false
   }
 }, [])
+  useEffect(() => {
+  function onVis() {
+    pageHiddenRef.current = document.visibilityState === 'hidden'
+  }
+  onVis()
+  document.addEventListener('visibilitychange', onVis)
+  return () => document.removeEventListener('visibilitychange', onVis)
+}, [])
   // ---- Periodic snapshot (every 2s) ----
   const [ui, setUi] = useState(null)
   const sparkDataRef = useRef([]) // numbers, max 60
@@ -273,7 +307,8 @@ function growBackoff() {
     rollSeconds(nowSec)
 
     // only snapshot every 2s
-    if ((renderTick % 2) !== 0) return
+    const cadence = pageHiddenRef.current ? 10 : 2;
+    if ((renderTick % cadence) !== 0) return
 
     // sample into 10s ring if due
     const now = Date.now()
