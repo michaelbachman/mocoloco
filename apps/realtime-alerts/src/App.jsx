@@ -18,7 +18,7 @@ class ErrorBoundary extends React.Component {
 }
 
 // Minimal inline SVG sparkline (no deps)
-function Sparkline({ data = [], width = '100%', height = 40, stroke = '#4ade80' }) {
+function Sparkline({ data = [], width = '100%', height = 40, stroke = '#4ade80' }) { // dashed baseline when few points
   const w = 200; // virtual width
   const h = 40;
   const n = data.length;
