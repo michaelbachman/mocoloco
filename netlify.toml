@@ -1,6 +1,6 @@
 [build]
   base = "apps/realtime-alerts"
-  publish = "apps/realtime-alerts/dist"
+  publish = "dist"
   command = "npm install --no-audit --no-fund && npm run build"
 
 [[redirects]]
