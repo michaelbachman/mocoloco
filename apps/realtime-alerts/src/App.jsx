@@ -123,7 +123,8 @@ export default function App() {
     watchdogResets: 0, rateDelayed: 0, queuedActions: 0,
     ticks: 0,
   })
-  const avgTickMsRef = useRef(null) // moving avg of tick intervals
+  const lastTickRef = useRef(null)
+const avgTickMsRef = useRef(null) // moving avg of tick intervals
   
   // Persist certain refs when they change (via a lightweight 1s ticker)
   useEffect(() => {
@@ -330,13 +331,17 @@ export default function App() {
             // count a live tick
             countersRef.current.ticks = (countersRef.current.ticks || 0) + 1
 
-            // tick interval tracking (for adaptive watchdog)
+            // tick interval tracking (for adaptive watchdog & Avg tick)
             const nowMs = Date.now()
-            if (lastTick) {
-              const diff = nowMs - lastTick
-              const prev = avgTickMsRef.current
-              avgTickMsRef.current = prev == null ? diff : Math.round(prev * 0.8 + diff * 0.2)
+            const prev = lastTickRef.current
+            if (prev != null) {
+              const diff = nowMs - prev
+              const prevAvg = avgTickMsRef.current
+              avgTickMsRef.current = prevAvg == null
+                ? diff
+                : Math.round(prevAvg * 0.8 + diff * 0.2)
             }
+            lastTickRef.current = nowMs
             setLastTick(nowMs)
             backoffRef.current = BACKOFF_START_MS
             failCountRef.current = 0
@@ -413,13 +418,14 @@ export default function App() {
     }, delay)
   }
 
-  // ---- Watchdog (adaptive) ----
+  // ---- Watchdog
   useEffect(() => {
     const iv = setInterval(() => {
-      if (!lastTick) return
-      const diff = Date.now() - lastTick
+      const last = lastTickRef.current
+      if (!last) return
+      const diff = Date.now() - last
       const avg = avgTickMsRef.current || 60000
-      let threshold = 60000 // default 60s
+      let threshold = 60000
       if (avg <= 4000) threshold = 40000
       else if (avg <= 10000) threshold = 60000
       else threshold = 90000
@@ -430,6 +436,7 @@ export default function App() {
       }
     }, 15000)
     return () => clearInterval(iv)
+  }, [])
   }, [lastTick])
 
   // ---- Panel heartbeat (1s, setInterval — resilient) ----
