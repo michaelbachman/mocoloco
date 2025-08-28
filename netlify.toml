@@ -2,6 +2,9 @@
   command = "npm install --no-audit --no-fund && npm run build"
   publish = "dist"
 
+[functions]
+  node_bundler = "esbuild"
+
 [[headers]]
   for = "/*"
   [headers.values]
@@ -9,3 +12,8 @@
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     Referrer-Policy = "no-referrer"
     X-Content-Type-Options = "nosniff"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200

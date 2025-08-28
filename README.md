@@ -1,20 +1,15 @@
-# Kraken Realtime Alerts (Standalone)
+# Kraken Realtime Alerts (Minimal Scaffold)
 
-Build-free static app for Netlify. No bundlers, no inline scripts, CSP-friendly.
+This is a minimal, CSP-safe Vite + React scaffold to ensure your Netlify deploy works and the ZIP download is valid.
+It fetches XBTUSD once from Kraken REST and renders a basic status + logs panel.
 
-## Features
-- Spot-only (Kraken public) XBTUSD/ETHUSD/SOLUSD
-- Rolling baseline + 1% threshold checks (UI only; alerts disabled)
-- Quiet hours 11:00pm–7:00am PT
-- Telemetry (ticks, avg tick, backoff, reconnects, next allowed)
-- Logs with capped length and auto-scroll
-- Sparkline (SVG, no external libs)
+## Deploy (Netlify)
+- Publish directory: `dist`
+- Build command: `npm install --no-audit --no-fund && npm run build`
 
-## Deploy
-- Drag/drop folder (or zip) to Netlify
-- Ensure Netlify serves from repo root (`publish = "."`)
-- CSP already set in `netlify.toml`
+## Dev
+npm install
+npm run dev
 
-## Notes
-- Baselines persisted per pair in `localStorage`
-- No Service Worker to avoid MIME & caching issues
+## Build
+npm run build
