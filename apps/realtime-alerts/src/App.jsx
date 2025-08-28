@@ -427,8 +427,7 @@ useEffect(() => {
           <div className="logs mono">
             {logs.map((s,i)=><div key={i}>{s}</div>)}
           </div>
-        </div>
-        </>)
+        </>)}
       </div>
     </div>
   )
