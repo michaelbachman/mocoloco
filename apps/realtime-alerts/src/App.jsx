@@ -559,6 +559,11 @@ useEffect(() => {
             <div>Rate-delayed actions: <strong>{panel.counters.rateDelayed}</strong> • Queued actions: <strong>{panel.counters.queuedActions}</strong></div>
             <div>Ticks received: <strong>{panel.counters.ticks}</strong></div>
             <div>Ticks (60s / 300s): <strong>{panel.ticks60}</strong> / <strong>{panel.ticks300}</strong> • Rate: <strong>{panel.rate60?.toFixed(2)}</strong>/s • <strong>{panel.rate300?.toFixed(2)}</strong>/s</div>
+<div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Sparkline samples: {tickRateHistory.length}</div>
+<div style={{ width: '100%', height: 56, marginTop: 6, display: 'block', border: '2px solid #d1d5db', borderRadius: 6, padding: 2 }}>
+  <Sparkline data={tickRateHistory} height={52} />
+</div>
+
             <div>Consecutive failures: <strong>{panel.failCount}</strong></div>
             <div>Avg tick: <strong>{panel.avgTickMs ? (panel.avgTickMs/1000).toFixed(1) + 's' : '—'}</strong></div>
           </div>
