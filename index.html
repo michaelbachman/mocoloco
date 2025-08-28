@@ -3,13 +3,62 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kraken Realtime Alerts</title>
+    <title>Kraken Realtime Alerts (Lite)</title>
     <link rel="preconnect" href="https://api.kraken.com" crossorigin>
-    <link rel="preconnect" href="https://ws.kraken.com" crossorigin>
-    <link rel="stylesheet" href="/styles.css">
-    <script type="module" crossorigin src="/src/main.jsx"></script>
+    <link rel="stylesheet" href="/src/styles.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="app" class="wrap">
+      <header class="hero card">
+        <div>
+          <div class="title">Kraken Spot Monitor</div>
+          <div class="sub">Public REST • Rolling baseline alerts • Quiet hours respected</div>
+        </div>
+        <div class="row">
+          <label for="pair">Pair</label>
+          <select id="pair" class="select">
+            <option value="XBTUSD">XBTUSD (BTC/USD)</option>
+            <option value="ETHUSD">ETHUSD (ETH/USD)</option>
+            <option value="SOLUSD">SOLUSD (SOL/USD)</option>
+          </select>
+        </div>
+      </header>
+
+      <section class="grid">
+        <div class="card">
+          <div class="label">Current price</div>
+          <div class="val" id="price">—</div>
+          <div class="small" id="price_note">waiting…</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Rolling baseline</div>
+          <div class="val" id="baseline">—</div>
+          <div class="small">Updated after alert</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Δ vs baseline</div>
+          <div class="val" id="delta_val">—</div>
+          <div class="small" id="delta_note">—</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Status</div>
+          <div class="row gap">
+            <span class="badge ok" id="status">Idle</span>
+            <span class="small" id="quiet">Quiet hours: —</span>
+          </div>
+          <div class="small" id="next">Next check in —</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="label">Events</div>
+        <div id="logs" class="logs" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -1,19 +1,11 @@
 [build]
-  command = "npm install --no-audit --no-fund && npm run build"
+  command = "npm run build"
   publish = "dist"
-
-[functions]
-  node_bundler = "esbuild"
 
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' https://api.kraken.com wss://ws.kraken.com; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'"
-    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://api.kraken.com; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     Referrer-Policy = "no-referrer"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     X-Content-Type-Options = "nosniff"
-
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
