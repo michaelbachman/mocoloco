@@ -13,7 +13,8 @@ function nowPT() {
 const Sparkline = React.memo(function Sparkline({ data = [], width = '100%', height = 44, stroke = '#16a34a' }) {
   const w = 200, h = 44
   const n = data.length
-  if (!n) return (
+  if (!n) const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
+  return (
     <svg width={width} height={height} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       <line x1="1" y1={h/2} x2={w-1} y2={h/2} stroke="#bbb" strokeDasharray="4 3" strokeWidth="1" />
     </svg>
@@ -28,6 +29,7 @@ const Sparkline = React.memo(function Sparkline({ data = [], width = '100%', hei
     const y = h - 2 - ((data[i] - min) / span) * (h - 4)
     pts += (i? ' ' : '') + x.toFixed(1) + ',' + Math.min(h-1, Math.max(1, y)).toFixed(1)
   }
+  const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
   return (
     <svg width={width} height={height} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       <polyline points={pts} fill="none" stroke={stroke} strokeWidth="2" />
@@ -277,16 +279,19 @@ function growBackoff() {
 
   useEffect(() => {
   const id = setTimeout(() => connectWS('initial'), 150)
+  const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
   return () => clearTimeout(id)
 }, [])
 
 
   useEffect(() => {
   const id = setTimeout(() => connectWS('initial'), 150)
+  const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
   return () => clearTimeout(id)
 }, [])
 
   useEffect(() => {
+  const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
   return () => {
     clearTimers()
     try { wsRef.current?.close(1000, 'unmount') } catch {}
@@ -301,6 +306,7 @@ function growBackoff() {
   }
   onVis()
   document.addEventListener('visibilitychange', onVis)
+  const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
   return () => document.removeEventListener('visibilitychange', onVis)
 }, [])
   // ---- Periodic snapshot (every 2s) ----
@@ -392,6 +398,7 @@ function growBackoff() {
     return <div>Loading…</div>
   }
 
+  const visibleLogs = Array.isArray(logs) ? logs.slice(0, VISIBLE_MAX) : []
   return (
     <div>
       <div className="row">
@@ -419,7 +426,7 @@ function growBackoff() {
           <>
         <h2>Logs</h2>
           <div className="logs mono">
-            {logs.map((s,i)=><div key={i}>{s}</div>)}
+            {visibleLogs.map((s,i)=><div key={i}>{s}</div>)}
           </div>
         </>
       </div>

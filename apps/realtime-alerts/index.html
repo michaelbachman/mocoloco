@@ -21,6 +21,15 @@
   /* Performance-only: avoid below-the-fold costs without visual change */
   .col { content-visibility: auto; contain-intrinsic-size: 1px 600px; }
   </style>
+  <style>
+
+  /* LCP control: prevent logs from becoming the LCP element */
+  .logs { max-height: 240px; overflow: auto; }
+  .logs-col { margin-top: 24px; }
+  /* Optional: if you wrap the top summary in .hero, this keeps it as likely LCP */
+  .hero { min-height: 320px; }
+
+  </style>
 </head>
   <body>
     <h1>Realtime Alerts</h1>
