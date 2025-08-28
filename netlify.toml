@@ -1,19 +1,12 @@
+# Build-free static site
 [build]
-  command = "npm install --no-audit --no-fund && npm run build"
-  publish = "dist"
-
-[functions]
-  node_bundler = "esbuild"
+  command = ""
+  publish = "."
 
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' https: wss://ws.kraken.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; connect-src 'self' https://api.kraken.com wss://ws.kraken.com; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     Referrer-Policy = "no-referrer"
     X-Content-Type-Options = "nosniff"
-
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200

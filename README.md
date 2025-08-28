@@ -1,21 +1,20 @@
-# Kraken Real-time Alerts (Netlify)
-A minimal Netlify + Vite + React setup that listens to Kraken's public WebSocket (spot ticker) and triggers rolling-baseline alerts with quiet hours and Telegram pushes.
+# Kraken Realtime Alerts (Standalone)
+
+Build-free static app for Netlify. No bundlers, no inline scripts, CSP-friendly.
 
 ## Features
-- WebSocket to `wss://ws.kraken.com` (pair: XBT/USD)
-- Rolling baseline per token (stored in `localStorage`)
-- Threshold: ±5% (edit `DEFAULT_THRESHOLD_PCT` in `App.jsx`)
-- Quiet hours: 11pm–7am PT (edit `QUIET_HOURS` in `App.jsx`)
-- Telegram push via Netlify Function (`/.netlify/functions/telegram`)
+- Spot-only (Kraken public) XBTUSD/ETHUSD/SOLUSD
+- Rolling baseline + 1% threshold checks (UI only; alerts disabled)
+- Quiet hours 11:00pm–7:00am PT
+- Telemetry (ticks, avg tick, backoff, reconnects, next allowed)
+- Logs with capped length and auto-scroll
+- Sparkline (SVG, no external libs)
 
-## Deploy (Netlify)
-1. Create a new Netlify site from this folder.
-2. Set environment variables:
-   - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_CHAT_ID`
-3. Build settings:
-   - Base directory: `apps/realtime-alerts`
-   - Build command: `npm install --no-audit --no-fund && npm run build`
-   - Publish directory: `apps/realtime-alerts/dist`
-   - Functions directory: `netlify/functions`
-4. Deploy. Open the site to see live prices. Alerts are sent to Telegram when a ±5% move occurs since the last baseline.
+## Deploy
+- Drag/drop folder (or zip) to Netlify
+- Ensure Netlify serves from repo root (`publish = "."`)
+- CSP already set in `netlify.toml`
+
+## Notes
+- Baselines persisted per pair in `localStorage`
+- No Service Worker to avoid MIME & caching issues
